@@ -45,16 +45,16 @@ def stop_container():
 signal.signal(signal.SIGTERM, stop_container)
 
 
-def fetchBlockJSON(b_num):
+def fetch_block_json(b_num):
     data = myencode({'block_num_or_id': b_num})
     block_info = requests.post(API_NODES[0] + '/v1/chain/get_block', data=data, timeout=10).json()
     return b_num, block_info
 
-def fetchBlockRange(block_range):
+def fetch_block_range(block_range):
     try:
         original_last_block = block_range.start - 1
         pool = ThreadPool(SIMULTANEOUS_BLOCKS)
-        results = pool.map(fetchBlockJSON,  block_range)
+        results = pool.map(fetch_block_json,  block_range)
         pool.close()
         pool.join()
         results = sorted(results, key=lambda x: x[0])
@@ -67,6 +67,7 @@ def fetchBlockRange(block_range):
                     raise Exception('Returned block_number is not an Integer as expected.')
 
                 block_time = datetime.strptime(block_info['timestamp']+'000', '%Y-%m-%dT%H:%M:%S.%f')
+                block_date_string = block_time.strftime("%Y-%m-%d")
 
                 for itx, tx in enumerate(block_info['transactions']):
                     if tx['status'] == 'executed':
@@ -85,14 +86,17 @@ def fetchBlockRange(block_range):
                                     logger.error(e)
 
                             # add resource usage to redis
-                            logger.info(f'{actor} - {tx["cpu_usage_us"]} - {tx["net_usage_words"]}')
+                            redis.hincrby(block_date_string, f'{actor}-cpu', tx["cpu_usage_us"])
+                            redis.hincrby(block_date_string, f'{actor}-net', tx["net_usage_words"])
+                            logger.info(f'{block_date_string} - {actor} - {tx["cpu_usage_us"]} - {tx["net_usage_words"]}')
 
             except Exception as e:
-                logger.error(e)
+                logger.error(traceback.format_exc())
 
     except Exception as e:
-        logger.error(e)
+        logger.error(traceback.format_exc())
 
+    return block_number
 
 
 while KEEP_RUNNING:
@@ -115,15 +119,12 @@ while KEEP_RUNNING:
     except Exception as e:
         logger.info('Failed to get last block in Redis: ' + str(e))
         logger.info('Using: ' + str(last_block))
-#        logger.info(traceback.format_exc())
         time.sleep(1)
 
     try:
         while KEEP_RUNNING:
             # get n blocks of data
             target_end_block = chain_info['last_irreversible_block_num']
-#            if self.pause_at_block:
-#                target_end_block = min(target_end_block, self.pause_at_block)
             block_range = range(last_block+1, min(last_block + SIMULTANEOUS_BLOCKS + 1, target_end_block))
             if len(block_range) < 1:
                 logger.info('Pausing Block Collection Thread')
@@ -131,7 +132,7 @@ while KEEP_RUNNING:
                 logger.info('Restarting Block Collection Thread')
                 break
 
-            last_block = fetchBlockRange(block_range)
+            last_block = fetch_block_range(block_range)
             if last_block:
                 redis.set('last_block', last_block)
             time.sleep(0.5)
