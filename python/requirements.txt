@@ -1,0 +1,5 @@
+pandas
+pyarrow==0.13.0
+redis
+apscheduler==3.5.3
+requests==2.20.0

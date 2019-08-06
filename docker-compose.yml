@@ -1,0 +1,20 @@
+version: '3.3'
+
+services:
+  python_monitor:
+    restart: always
+    build: ./python
+    volumes:
+      - ./python:/usr/src/app
+    env_file:
+      - ./config.env
+    command: ["python", "src/run.py"]
+    depends_on:
+      - redis
+
+  redis:
+    restart: always
+    image: "redis"
+    volumes:
+      - "./redis:/data"
+    entrypoint: ["redis-server", "--save", "300", "1"]
