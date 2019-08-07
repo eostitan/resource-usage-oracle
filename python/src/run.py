@@ -16,6 +16,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 API_NODES = (os.getenv('EOS_API_NODE_1', ''), os.getenv('EOS_API_NODE_2', ''))
 SIMULTANEOUS_BLOCKS = 10
 EMPTY_TABLE_START_BLOCK = 72655480
+MAX_ACCOUNTS_PER_SUBMISSION = 10
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -25,16 +26,35 @@ formatter = logging.Formatter(f'%(asctime)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-redis = redis.StrictRedis(host='redis', port=6379, db=0, decode_responses=False)
+redis = redis.StrictRedis(host='redis', port=6379, db=0, decode_responses=True)
 
 def myencode(data):
     return json.dumps(data).encode("utf-8")
 
 def submit_usage():
-    logger.info('Submitting Usage!')
+    previous_date_string = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
+    logger.info(f'> {previous_date_string}')
+    records = []
+    active_accounts = list(set(redis.hkeys(previous_date_string)))
+    for key in active_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
+        actor = key[:-4]
+        cpu_usage_us = redis.hget(previous_date_string, f'{actor}-cpu')
+        net_usage_words = redis.hget(previous_date_string, f'{actor}-net')
+        record = {'account': actor, 'cpu_usage_us': cpu_usage_us, 'net_usage_words': net_usage_words}
+        logger.info(record)
+        records.append(record)
+        redis.hdel(previous_date_string, f'{actor}-cpu')
+        redis.hdel(previous_date_string, f'{actor}-net')
+
+    # todo - use eospy to submit to oracle contract
+    # todo - handle if tx is blocked
+    logger.info('Submitting usage stats...')
+
+    logger.info('Submitted usage stats!')
+
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(submit_usage, 'interval', minutes=1, id='submit_usage')
+scheduler.add_job(submit_usage, 'interval', seconds=10, id='submit_usage')
 scheduler.start()
 
 
@@ -88,7 +108,6 @@ def fetch_block_range(block_range):
                             # add resource usage to redis
                             redis.hincrby(block_date_string, f'{actor}-cpu', tx["cpu_usage_us"])
                             redis.hincrby(block_date_string, f'{actor}-net', tx["net_usage_words"])
-                            logger.info(f'{block_date_string} - {actor} - {tx["cpu_usage_us"]} - {tx["net_usage_words"]}')
 
             except Exception as e:
                 logger.error(traceback.format_exc())
