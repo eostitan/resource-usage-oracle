@@ -11,9 +11,18 @@ import requests
 import redis
 import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
+import eospy.cleos
+from eospy.cleos import EOSKey
 
 
 API_NODES = (os.getenv('EOS_API_NODE_1', ''), os.getenv('EOS_API_NODE_2', ''))
+CONTRACT_ACCOUNT = os.getenv('CONTRACT_ACCOUNT', '')
+CONTRACT_ACTION = os.getenv('CONTRACT_ACTION', '')
+SUBMISSION_ACCOUNT = os.getenv('SUBMISSION_ACCOUNT', '')
+SUBMISSION_PERMISSION = os.getenv('SUBMISSION_PERMISSION', '')
+SUBMISSION_PUBLIC_KEY = os.getenv('SUBMISSION_PUBLIC_KEY', '')
+SUBMISSION_PRIVATE_KEY = os.getenv('SUBMISSION_PRIVATE_KEY', '')
+
 SIMULTANEOUS_BLOCKS = 10
 EMPTY_TABLE_START_BLOCK = 72655480
 MAX_ACCOUNTS_PER_SUBMISSION = 10
@@ -31,6 +40,20 @@ redis = redis.StrictRedis(host='redis', port=6379, db=0, decode_responses=True)
 def myencode(data):
     return json.dumps(data).encode("utf-8")
 
+def sendtx(payload, arguments, key):
+    #Converting payload to binary
+    data=ce.abi_json_to_bin(payload['account'],payload['name'],arguments)
+    #Inserting payload binary form as "data" field in original payload
+    payload['data']=data['binargs']
+    #final transaction formed
+    trx = {"actions": [payload]}
+    trx['expiration'] = str((datetime.utcnow() + timedelta(seconds=60)).replace(tzinfo=pytz.UTC))
+    
+    k = EOSKey(key)
+    resp = ce.push_transaction(trx, k, broadcast=True)
+    return resp
+
+
 def submit_usage():
     previous_date_string = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
     logger.info(f'> {previous_date_string}')
@@ -46,11 +69,23 @@ def submit_usage():
         redis.hdel(previous_date_string, f'{actor}-cpu')
         redis.hdel(previous_date_string, f'{actor}-net')
 
-    # todo - use eospy to submit to oracle contract
-    # todo - handle if tx is blocked
-    logger.info('Submitting usage stats...')
-
-    logger.info('Submitted usage stats!')
+    # todo - handle if tx doesn't get included in lib block
+    try:
+        logger.info('Submitting usage stats...')
+        arguments = {
+        }
+        payload = {
+            "account": CONTRACT_ACCOUNT,
+            "name": CONTRACT_ACTION,
+            "authorization": [{
+                "actor": SUBMISSION_ACCOUNT,
+                "permission": SUBMISSION_PERMISSION,
+            }],
+        }
+        sendtx(payload, arguments, SUBMISSION_PRIVATE_KEY)
+        logger.info('Submitted usage stats!')
+    except Exception as e:
+        logger.info('Could not submit tx!')
 
 
 scheduler = BackgroundScheduler()
