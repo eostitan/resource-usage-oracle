@@ -1,16 +1,29 @@
 version: '3.3'
 
 services:
-  python_monitor:
+  python_aggregator:
     restart: always
-    build: ./python
+    build: ./python_aggregator
     volumes:
-      - ./python:/usr/src/app
+      - ./python_aggregator:/usr/src/app
     env_file:
       - ./config.env
     command: ["python", "src/run.py"]
     depends_on:
       - redis
+
+  eosjs_server:
+    restart: always
+    build: ./eosjs_server
+    volumes:
+      - ./eosjs_server:/home/app
+      - /home/app/node_modules
+    env_file:
+      - ./config.env
+    working_dir: /home/app
+    command: ["node", "app.js"]
+    ports:
+      - "3000:3000"
 
   redis:
     restart: always

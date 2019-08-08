@@ -1,6 +1,6 @@
 ## EOSIO Resource Usage Aggregator
 
-Collects CPU and NET usage for all transactions using the get_blocks API, and submits to DelphiOracle.
+Collects CPU and NET usage for all transactions using the get_blocks API, and submits to Worbli oracle contract.
 
 
 ### How to Run

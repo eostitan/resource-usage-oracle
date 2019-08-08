@@ -1,0 +1,11 @@
+{
+  "name": "eosjs_server",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "node-fetch": "2.6.0",
+    "utils": "0.3.1",
+    "eosjs": "^20.0.0",
+    "express": "3.x"
+  }
+}

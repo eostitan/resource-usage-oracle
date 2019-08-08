@@ -7,7 +7,7 @@ __pycache__/
 .DS_Store
 
 # Database files
-/redis/*
+redis
 
 # credentials and SSL certificates
 *.env
@@ -15,9 +15,10 @@ __pycache__/
 *.pem
 *.csv
 *.log
-*.json
 *.jsond
 *.pkl
 
 # miscellaneous
 debug.log
+node_modules
+yarn.lock
