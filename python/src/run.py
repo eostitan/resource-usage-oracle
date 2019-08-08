@@ -4,6 +4,7 @@ import json
 import os
 import time
 import signal
+from collections import Counter
 from datetime import datetime, timedelta, date
 import pytz
 from threading import Thread
@@ -43,7 +44,7 @@ ce = eospy.cleos.Cleos(url=API_NODES[0])
 def myencode(data):
     return json.dumps(data).encode("utf-8")
 
-def sendtx(actions, key):
+def send_transaction(actions, key):
     # todo - remove once testnet available
     logger.info(actions)
     return 
@@ -55,7 +56,6 @@ def sendtx(actions, key):
         # Inserting payload binary form as "data" field in original payload
         action['data'] = data['binargs']
 
-    # final transaction formed
     trx = {"actions": actions}
     trx['expiration'] = str((datetime.utcnow() + timedelta(seconds=60)).replace(tzinfo=pytz.UTC))
     
@@ -66,7 +66,6 @@ def sendtx(actions, key):
     return resp
 
 
-# todo - handle if tx doesn't get included in immutable block
 def submit_resource_usage():
     try:
         previous_date_string = (datetime.utcnow() - timedelta(days=2)).strftime("%Y-%m-%d")
@@ -95,10 +94,13 @@ def submit_resource_usage():
             actions.append(action)
 
         logger.info(f'Submitting resource usage stats for {previous_date_string}...')
-        sendtx(actions, SUBMISSION_PRIVATE_KEY)
+        send_transaction(actions, SUBMISSION_PRIVATE_KEY)
         logger.info('Submitted resource usage stats!')
 
+        # remove data once successfully sent
+        # todo - handle if tx doesn't get included in immutable block
         for key in active_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
+            actor = key[:-4]
             redis.hdel(previous_date_string, f'{actor}-cpu')
             redis.hdel(previous_date_string, f'{actor}-net')
 
@@ -133,6 +135,7 @@ def fetch_block_range(block_range):
         pool.join()
         results = sorted(results, key=lambda x: x[0])
 
+        date_account_resource_deltas = Counter()
         for result in results:
             block_number, block_info = result
 
@@ -150,28 +153,29 @@ def fetch_block_range(block_range):
                             try:
                                 actions = tx['trx']['transaction']['actions']
                             except Exception as e:
-                                logger.error(e)
+                                logger.info(traceback.format_exc())
                             actor = None
                             for action in actions:
                                 try:
                                     actor = action['authorization'][0]['actor']
                                     break
                                 except Exception as e:
-                                    logger.error(e)
+                                    logger.info('Action has no auth actor, using next available...')
 
-                            # add resource usage to redis
-                            redis.hincrby(block_date_string, f'{actor}-cpu', tx["cpu_usage_us"])
-                            redis.hincrby(block_date_string, f'{actor}-net', tx["net_usage_words"])
+                            date_account_resource_deltas[(block_date_string, actor, 'cpu')] += tx["cpu_usage_us"]
+                            date_account_resource_deltas[(block_date_string, actor, 'net')] += tx["net_usage_words"]
 
             except Exception as e:
                 logger.error(traceback.format_exc())
 
+        return block_number, date_account_resource_deltas
+
     except Exception as e:
         logger.error(traceback.format_exc())
+        return None, None
 
-    return block_number
 
-
+time.sleep(3)
 while KEEP_RUNNING:
     try:
         chain_info = requests.get(f'{API_NODES[0]}/v1/chain/get_info', timeout=5).json()
@@ -205,9 +209,15 @@ while KEEP_RUNNING:
                 logger.info('Restarting Block Collection Thread')
                 break
 
-            last_block = fetch_block_range(block_range)
+            last_block, date_account_resource_deltas = fetch_block_range(block_range)
             if last_block:
-                redis.set('last_block', last_block)
+                # add resource usage to redis
+                pipe = redis.pipeline()
+                for key in date_account_resource_deltas:
+                    pipe.hincrby(key[0], f'{key[1]}-{key[2]}', date_account_resource_deltas[key])
+                pipe.set('last_block', last_block)
+                pipe.execute()
+                logger.info(last_block)
             time.sleep(0.5)
 
     except Exception as e:
