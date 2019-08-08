@@ -5,6 +5,7 @@ import os
 import time
 import signal
 from datetime import datetime, timedelta, date
+import pytz
 from threading import Thread
 from multiprocessing.dummy import Pool as ThreadPool
 import requests
@@ -15,7 +16,7 @@ import eospy.cleos
 from eospy.cleos import EOSKey
 
 
-API_NODES = (os.getenv('EOS_API_NODE_1', ''), os.getenv('EOS_API_NODE_2', ''))
+API_NODES = (os.getenv('EOSIO_API_NODE_1', ''), os.getenv('EOSIO_API_NODE_2', ''))
 CONTRACT_ACCOUNT = os.getenv('CONTRACT_ACCOUNT', '')
 CONTRACT_ACTION = os.getenv('CONTRACT_ACTION', '')
 SUBMISSION_ACCOUNT = os.getenv('SUBMISSION_ACCOUNT', '')
@@ -36,60 +37,78 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 redis = redis.StrictRedis(host='redis', port=6379, db=0, decode_responses=True)
+ce = eospy.cleos.Cleos(url=API_NODES[0])
+
 
 def myencode(data):
     return json.dumps(data).encode("utf-8")
 
-def sendtx(payload, arguments, key):
-    #Converting payload to binary
-    data=ce.abi_json_to_bin(payload['account'],payload['name'],arguments)
-    #Inserting payload binary form as "data" field in original payload
-    payload['data']=data['binargs']
-    #final transaction formed
-    trx = {"actions": [payload]}
+def sendtx(actions, key):
+    # todo - remove once testnet available
+    logger.info(actions)
+    return 
+
+    for action in actions:
+        # Converting payload to binary
+        # todo - remove this if possible to increase throughput
+        data = ce.abi_json_to_bin(action['account'],action['name'],action['data'])
+        # Inserting payload binary form as "data" field in original payload
+        action['data'] = data['binargs']
+
+    # final transaction formed
+    trx = {"actions": actions}
     trx['expiration'] = str((datetime.utcnow() + timedelta(seconds=60)).replace(tzinfo=pytz.UTC))
     
     k = EOSKey(key)
+
+    logger.info(trx)
     resp = ce.push_transaction(trx, k, broadcast=True)
     return resp
 
 
-def submit_usage():
-    previous_date_string = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
-    logger.info(f'> {previous_date_string}')
-    records = []
-    active_accounts = list(set(redis.hkeys(previous_date_string)))
-    for key in active_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
-        actor = key[:-4]
-        cpu_usage_us = redis.hget(previous_date_string, f'{actor}-cpu')
-        net_usage_words = redis.hget(previous_date_string, f'{actor}-net')
-        record = {'account': actor, 'cpu_usage_us': cpu_usage_us, 'net_usage_words': net_usage_words}
-        logger.info(record)
-        records.append(record)
-        redis.hdel(previous_date_string, f'{actor}-cpu')
-        redis.hdel(previous_date_string, f'{actor}-net')
-
-    # todo - handle if tx doesn't get included in lib block
+# todo - handle if tx doesn't get included in immutable block
+def submit_resource_usage():
     try:
-        logger.info('Submitting usage stats...')
-        arguments = {
-        }
-        payload = {
-            "account": CONTRACT_ACCOUNT,
-            "name": CONTRACT_ACTION,
-            "authorization": [{
-                "actor": SUBMISSION_ACCOUNT,
-                "permission": SUBMISSION_PERMISSION,
-            }],
-        }
-        sendtx(payload, arguments, SUBMISSION_PRIVATE_KEY)
-        logger.info('Submitted usage stats!')
+        previous_date_string = (datetime.utcnow() - timedelta(days=2)).strftime("%Y-%m-%d")
+        records = []
+        active_accounts = list(set(redis.hkeys(previous_date_string)))
+        actions = []
+        for key in active_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
+            actor = key[:-4]
+            cpu_usage_us = redis.hget(previous_date_string, f'{actor}-cpu')
+            net_usage_words = redis.hget(previous_date_string, f'{actor}-net')
+            record = {'account': actor, 'cpu_usage_us': cpu_usage_us, 'net_usage_words': net_usage_words}
+            records.append(record)
+
+            action = {
+                "account": CONTRACT_ACCOUNT,
+                "name": CONTRACT_ACTION,
+                "authorization": [{
+                    "actor": SUBMISSION_ACCOUNT,
+                    "permission": SUBMISSION_PERMISSION,
+                }],
+                "data": {"source": SUBMISSION_ACCOUNT,
+                    "account": actor, 
+                    "cpu_quantity": cpu_usage_us,
+                    "net_quantity": net_usage_words}
+            }
+            actions.append(action)
+
+        logger.info(f'Submitting resource usage stats for {previous_date_string}...')
+        sendtx(actions, SUBMISSION_PRIVATE_KEY)
+        logger.info('Submitted resource usage stats!')
+
+        for key in active_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
+            redis.hdel(previous_date_string, f'{actor}-cpu')
+            redis.hdel(previous_date_string, f'{actor}-net')
+
     except Exception as e:
         logger.info('Could not submit tx!')
+        logger.info(traceback.format_exc())
 
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(submit_usage, 'interval', seconds=10, id='submit_usage')
+scheduler.add_job(submit_resource_usage, 'interval', seconds=10, id='submit_resource_usage')
 scheduler.start()
 
 
