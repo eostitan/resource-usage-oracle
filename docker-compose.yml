@@ -13,6 +13,7 @@ services:
       - redis
 
   eosjs_server:
+    container_name: eosjsserver
     restart: always
     build: ./eosjs_server
     volumes:

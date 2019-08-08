@@ -44,26 +44,11 @@ ce = eospy.cleos.Cleos(url=API_NODES[0])
 def myencode(data):
     return json.dumps(data).encode("utf-8")
 
-def send_transaction(actions, key):
-    # todo - remove once testnet available
-    logger.info(actions)
-    return 
-
-    for action in actions:
-        # Converting payload to binary
-        # todo - remove this if possible to increase throughput
-        data = ce.abi_json_to_bin(action['account'],action['name'],action['data'])
-        # Inserting payload binary form as "data" field in original payload
-        action['data'] = data['binargs']
-
-    trx = {"actions": actions}
-    trx['expiration'] = str((datetime.utcnow() + timedelta(seconds=60)).replace(tzinfo=pytz.UTC))
-    
-    k = EOSKey(key)
-
-    logger.info(trx)
-    resp = ce.push_transaction(trx, k, broadcast=True)
-    return resp
+def send_transaction(actions):
+    tx = {'actions': actions}
+    response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=20).json()
+    logger.info(response)
+    return None
 
 
 def submit_resource_usage():
@@ -94,7 +79,8 @@ def submit_resource_usage():
             actions.append(action)
 
         logger.info(f'Submitting resource usage stats for {previous_date_string}...')
-        send_transaction(actions, SUBMISSION_PRIVATE_KEY)
+#        send_transaction(actions, SUBMISSION_PRIVATE_KEY)
+        send_transaction(actions)
         logger.info('Submitted resource usage stats!')
 
         # remove data once successfully sent

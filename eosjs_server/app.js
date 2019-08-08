@@ -11,75 +11,20 @@ const signatureProvider = new JsSignatureProvider([key]);
 const rpc = new JsonRpc(process.env.EOSIO_API_NODE_1, { fetch });
 const api = new Api({ rpc, signatureProvider, textDecoder: new TextDecoder(), textEncoder: new TextEncoder() });
 
+app.use(express.json());
+
 app.get('/', (req, res) => {
-	res.send('Server works!')
+  res.send('Server up!')
+})
+
+app.post('/push_transaction', async (req, res) => {
+  var tx = req.body;
+  try {
+    const result = await api.transact(tx, {'blocksBehind': 3, 'expireSeconds': 30});
+    res.send(result)
+  } catch (e) {
+    res.send({"error": "" + e})
+  }
 })
 
 app.listen(port, () => console.log(`EOSJS server listening on port ${port}!`))
-
-/*
-const result = await api.transact({
-  actions: [{
-    account: 'eosio',
-    name: 'newaccount',
-    authorization: [{
-      actor: 'useraaaaaaaa',
-      permission: 'active',
-    }],
-    data: {
-      creator: 'useraaaaaaaa',
-      name: 'mynewaccount',
-      owner: {
-        threshold: 1,
-        keys: [{
-          key: 'PUB_R1_6FPFZqw5ahYrR9jD96yDbbDNTdKtNqRbze6oTDLntrsANgQKZu',
-          weight: 1
-        }],
-        accounts: [],
-        waits: []
-      },
-      active: {
-        threshold: 1,
-        keys: [{
-          key: 'PUB_R1_6FPFZqw5ahYrR9jD96yDbbDNTdKtNqRbze6oTDLntrsANgQKZu',
-          weight: 1
-        }],
-        accounts: [],
-        waits: []
-      },
-    },
-  },
-  {
-    account: 'eosio',
-    name: 'buyrambytes',
-    authorization: [{
-      actor: 'useraaaaaaaa',
-      permission: 'active',
-    }],
-    data: {
-      payer: 'useraaaaaaaa',
-      receiver: 'mynewaccount',
-      bytes: 8192,
-    },
-  },
-  {
-    account: 'eosio',
-    name: 'delegatebw',
-    authorization: [{
-      actor: 'useraaaaaaaa',
-      permission: 'active',
-    }],
-    data: {
-      from: 'useraaaaaaaa',
-      receiver: 'mynewaccount',
-      stake_net_quantity: '1.0000 SYS',
-      stake_cpu_quantity: '1.0000 SYS',
-      transfer: false,
-    }
-  }]
-}, {
-  blocksBehind: 3,
-  expireSeconds: 30,
-});
-
-*/
