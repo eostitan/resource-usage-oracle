@@ -97,8 +97,7 @@ scheduler.start()
 
 
 def fetch_block_json(b_num):
-    data = json.dumps({'block_num_or_id': b_num}).encode("utf-8")
-    block_info = requests.post(API_NODE + '/v1/chain/get_block', data=data, timeout=10).json()
+    block_info = requests.post(API_NODE + '/v1/chain/get_block', json={'block_num_or_id': b_num}, timeout=10).json()
     return b_num, block_info
 
 def fetch_block_range(block_range):
