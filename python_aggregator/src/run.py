@@ -13,8 +13,6 @@ import requests
 import redis
 import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
-import eospy.cleos
-from eospy.cleos import EOSKey
 
 
 API_NODES = (os.getenv('EOSIO_API_NODE_1', ''), os.getenv('EOSIO_API_NODE_2', ''))
@@ -22,8 +20,6 @@ CONTRACT_ACCOUNT = os.getenv('CONTRACT_ACCOUNT', '')
 CONTRACT_ACTION = os.getenv('CONTRACT_ACTION', '')
 SUBMISSION_ACCOUNT = os.getenv('SUBMISSION_ACCOUNT', '')
 SUBMISSION_PERMISSION = os.getenv('SUBMISSION_PERMISSION', '')
-SUBMISSION_PUBLIC_KEY = os.getenv('SUBMISSION_PUBLIC_KEY', '')
-SUBMISSION_PRIVATE_KEY = os.getenv('SUBMISSION_PRIVATE_KEY', '')
 
 SIMULTANEOUS_BLOCKS = 10
 EMPTY_TABLE_START_BLOCK = 72655480
@@ -38,7 +34,6 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 redis = redis.StrictRedis(host='redis', port=6379, db=0, decode_responses=True)
-ce = eospy.cleos.Cleos(url=API_NODES[0])
 
 
 def myencode(data):
@@ -46,14 +41,14 @@ def myencode(data):
 
 def send_transaction(actions):
     tx = {'actions': actions}
-    response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=20).json()
-    logger.info(response)
+    return tx
+#    response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=20).json()
+#    logger.info(response)
     return None
-
 
 def submit_resource_usage():
     try:
-        previous_date_string = (datetime.utcnow() - timedelta(days=2)).strftime("%Y-%m-%d")
+        previous_date_string = (datetime.utcnow() - timedelta(days=3)).strftime("%Y-%m-%d")
         records = []
         active_accounts = list(set(redis.hkeys(previous_date_string)))
         actions = []
@@ -79,7 +74,6 @@ def submit_resource_usage():
             actions.append(action)
 
         logger.info(f'Submitting resource usage stats for {previous_date_string}...')
-#        send_transaction(actions, SUBMISSION_PRIVATE_KEY)
         send_transaction(actions)
         logger.info('Submitted resource usage stats!')
 

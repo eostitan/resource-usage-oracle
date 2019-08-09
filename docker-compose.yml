@@ -23,8 +23,8 @@ services:
       - ./config.env
     working_dir: /home/app
     command: ["node", "app.js"]
-    ports:
-      - "3000:3000"
+#    ports:
+#      - "3000:3000"
 
   redis:
     restart: always
