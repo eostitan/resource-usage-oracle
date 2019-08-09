@@ -54,19 +54,20 @@ def submit_resource_usage():
 
         previous_date_string = (current_date_start - timedelta(days=1)).strftime("%Y-%m-%d")
 
+        active_accounts = list(set([key[:-4] for key in redis.hkeys(previous_date_string)]))
+        logger.info(f'Active accounts: {len(active_accounts)}')
+
         # if last block was yesterday, then aggregation is not finished, so don't submit
         if last_block_time < current_date_start:
             logger.info(f'No data ready to submit for {previous_date_string}')
             return
 
         records = []
-        active_accounts = list(set(redis.hkeys(previous_date_string)))
         actions = []
-        for key in active_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
-            actor = key[:-4]
-            cpu_usage_us = redis.hget(previous_date_string, f'{actor}-cpu')
-            net_usage_words = redis.hget(previous_date_string, f'{actor}-net')
-            record = {'account': actor, 'cpu_usage_us': cpu_usage_us, 'net_usage_words': net_usage_words}
+        for account in active_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
+            cpu_usage_us = redis.hget(previous_date_string, f'{account}-cpu')
+            net_usage_words = redis.hget(previous_date_string, f'{account}-net')
+            record = {'account': account, 'cpu_usage_us': cpu_usage_us, 'net_usage_words': net_usage_words}
             records.append(record)
 
             action = {
@@ -77,7 +78,7 @@ def submit_resource_usage():
                     "permission": SUBMISSION_PERMISSION,
                 }],
                 "data": {"source": SUBMISSION_ACCOUNT,
-                    "account": actor, 
+                    "account": account, 
                     "cpu_quantity": cpu_usage_us,
                     "net_quantity": net_usage_words}
             }
@@ -92,10 +93,9 @@ def submit_resource_usage():
 
         # remove data once successfully sent
         # todo - handle if tx doesn't get included in immutable block
-        for key in active_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
-            actor = key[:-4]
-            redis.hdel(previous_date_string, f'{actor}-cpu')
-            redis.hdel(previous_date_string, f'{actor}-net')
+        for account in active_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
+            redis.hdel(previous_date_string, f'{account}-cpu')
+            redis.hdel(previous_date_string, f'{account}-net')
 
     except Exception as e:
         logger.info('Could not submit tx!')
