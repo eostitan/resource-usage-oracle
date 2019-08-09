@@ -20,7 +20,7 @@ SUBMISSION_ACCOUNT = os.getenv('SUBMISSION_ACCOUNT', '')
 SUBMISSION_PERMISSION = os.getenv('SUBMISSION_PERMISSION', '')
 
 # block collection and scheduling constants
-EMPTY_TABLE_START_BLOCK = 72655480
+EMPTY_TABLE_START_BLOCK = 72854758 # start of 8th Aug
 BLOCK_ACQUISITION_THREADS = 10
 MAX_ACCOUNTS_PER_SUBMISSION = 10
 SUBMISSION_INTERVAL_SECONDS = 10
@@ -48,7 +48,17 @@ redis = redis.StrictRedis(host='redis', port=6379, db=0, decode_responses=True)
 # submit data to contract according to scheduling constants
 def submit_resource_usage():
     try:
-        previous_date_string = (datetime.utcnow() - timedelta(days=3)).strftime("%Y-%m-%d")
+        t = datetime.utcnow()
+        current_date_start = datetime(t.year, t.month, t.day, tzinfo=None)
+        last_block_time = datetime.utcfromtimestamp(int(redis.get('last_block_time_seconds')))
+
+        previous_date_string = (current_date_start - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        # if last block was yesterday, then aggregation is not finished, so don't submit
+        if last_block_time < current_date_start:
+            logger.info(f'No data ready to submit for {previous_date_string}')
+            return
+
         records = []
         active_accounts = list(set(redis.hkeys(previous_date_string)))
         actions = []
@@ -140,7 +150,7 @@ def fetch_block_range(block_range):
             except Exception as e:
                 logger.error(traceback.format_exc())
 
-        return block_number, date_account_resource_deltas
+        return block_number, block_time, date_account_resource_deltas
 
     except Exception as e:
         logger.error(traceback.format_exc())
@@ -180,15 +190,16 @@ while KEEP_RUNNING:
                 logger.info('Restarting block collection')
                 break
 
-            last_block, date_account_resource_deltas = fetch_block_range(block_range)
+            last_block, last_block_time, date_account_resource_deltas = fetch_block_range(block_range)
             if last_block:
                 # add resource usage to redis in atomic transaction
                 pipe = redis.pipeline()
                 for key in date_account_resource_deltas:
                     pipe.hincrby(key[0], f'{key[1]}-{key[2]}', date_account_resource_deltas[key])
                 pipe.set('last_block', last_block)
+                pipe.set('last_block_time_seconds', int((last_block_time - datetime.utcfromtimestamp(0)).total_seconds()))
                 pipe.execute()
-                logger.info(f'Last collected block: {last_block}')
+                logger.info(f'Last collected block: {last_block}/{last_block_time.strftime("%Y-%m-%dT%H:%M:%S")}')
             time.sleep(0.5)
 
     except Exception as e:
