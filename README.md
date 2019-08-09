@@ -24,4 +24,5 @@ Data submission uses a small node.js Express http server, as I'm not aware of an
 - Organise submission schedule so that previous days data is sent 1 hour after it ends, and spread out to ensure a low tx rate
 - Add an easy way to export collected data to a csv file
 - Add a schedule for pruning old data from redis
+- Add checks to ensure all data made it into immutable blocks?
 - Stress testing by using contract on EOS mainnet?
