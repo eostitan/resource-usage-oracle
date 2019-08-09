@@ -107,7 +107,7 @@ def fetch_block_range(block_range):
         original_last_block = block_range.start - 1
         with ThreadPoolExecutor(max_workers=BLOCK_ACQUISITION_THREADS) as executor:
             results = executor.map(fetch_block_json,  block_range)
-        results = sorted(results, key=lambda x: x[0])
+        results = sorted(results, key=lambda x: x[0]) # sort results by block number
 
         date_account_resource_deltas = Counter()
         for result in results:
@@ -148,7 +148,6 @@ def fetch_block_range(block_range):
         logger.error(traceback.format_exc())
         return None, None
 
-time.sleep(5)
 while KEEP_RUNNING:
     # get last irreversible block number from chain so we don't collect reversible blocks
     try:
@@ -168,9 +167,9 @@ while KEEP_RUNNING:
     try:
         last_block = int(redis.get('last_block'))
     except Exception as e:
-        logger.info('Failed to get last block in Redis: ' + str(e))
-        logger.info('Using: ' + str(last_block))
-        time.sleep(1)
+        logger.info(f'Failed to get last block in Redis: {e}')
+        logger.info(f'Using: {last_block}')
+        time.sleep(5)
 
     # loop to collect a range of blocks resource usage data every cycle
     try:
@@ -178,14 +177,14 @@ while KEEP_RUNNING:
             # get BLOCK_ACQUISITION_THREADS blocks of data
             block_range = range(last_block+1, min(last_block + BLOCK_ACQUISITION_THREADS + 1, lib_number))
             if len(block_range) < 1:
-                logger.info('Pausing Block Collection Thread')
+                logger.info('Reached last irreversible block - block collection paused')
                 time.sleep(5)
-                logger.info('Restarting Block Collection Thread')
+                logger.info('Restarting block collection')
                 break
 
             last_block, date_account_resource_deltas = fetch_block_range(block_range)
             if last_block:
-                # add resource usage to redis
+                # add resource usage to redis in atomic transaction
                 pipe = redis.pipeline()
                 for key in date_account_resource_deltas:
                     pipe.hincrby(key[0], f'{key[1]}-{key[2]}', date_account_resource_deltas[key])
@@ -195,4 +194,4 @@ while KEEP_RUNNING:
             time.sleep(0.5)
 
     except Exception as e:
-        logger.error(e)
+        logger.error(f'Failed to collect block range: {e}')
