@@ -7,24 +7,33 @@ import signal
 from collections import Counter
 from datetime import datetime, timedelta, date
 import pytz
-from threading import Thread
-from multiprocessing.dummy import Pool as ThreadPool
+from concurrent.futures import ThreadPoolExecutor
 import requests
 import redis
 import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
 
-
-API_NODES = (os.getenv('EOSIO_API_NODE_1', ''), os.getenv('EOSIO_API_NODE_2', ''))
+# get environment variables
+API_NODE = os.getenv('EOSIO_API_NODE', '')
 CONTRACT_ACCOUNT = os.getenv('CONTRACT_ACCOUNT', '')
 CONTRACT_ACTION = os.getenv('CONTRACT_ACTION', '')
 SUBMISSION_ACCOUNT = os.getenv('SUBMISSION_ACCOUNT', '')
 SUBMISSION_PERMISSION = os.getenv('SUBMISSION_PERMISSION', '')
 
-SIMULTANEOUS_BLOCKS = 10
+# block collection and scheduling constants
 EMPTY_TABLE_START_BLOCK = 72655480
+BLOCK_ACQUISITION_THREADS = 10
 MAX_ACCOUNTS_PER_SUBMISSION = 10
+SUBMISSION_INTERVAL_SECONDS = 10
 
+# for gracefully handling docker signals
+KEEP_RUNNING = True
+def stop_container():
+    global KEEP_RUNNING
+    KEEP_RUNNING = False
+signal.signal(signal.SIGTERM, stop_container)
+
+# logging configuration
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 handler = logging.FileHandler('debug.log')
@@ -33,19 +42,11 @@ formatter = logging.Formatter(f'%(asctime)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
+# establish connection to redis server
 redis = redis.StrictRedis(host='redis', port=6379, db=0, decode_responses=True)
 
 
-def myencode(data):
-    return json.dumps(data).encode("utf-8")
-
-def send_transaction(actions):
-    tx = {'actions': actions}
-    return tx
-#    response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=20).json()
-#    logger.info(response)
-    return None
-
+# submit data to contract according to scheduling constants
 def submit_resource_usage():
     try:
         previous_date_string = (datetime.utcnow() - timedelta(days=3)).strftime("%Y-%m-%d")
@@ -74,7 +75,10 @@ def submit_resource_usage():
             actions.append(action)
 
         logger.info(f'Submitting resource usage stats for {previous_date_string}...')
-        send_transaction(actions)
+        tx = {'actions': actions}
+        logger.info(tx)
+    #    response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=20).json()
+    #    logger.info(response)
         logger.info('Submitted resource usage stats!')
 
         # remove data once successfully sent
@@ -88,31 +92,21 @@ def submit_resource_usage():
         logger.info('Could not submit tx!')
         logger.info(traceback.format_exc())
 
-
 scheduler = BackgroundScheduler()
-scheduler.add_job(submit_resource_usage, 'interval', seconds=10, id='submit_resource_usage')
+scheduler.add_job(submit_resource_usage, 'interval', seconds=SUBMISSION_INTERVAL_SECONDS, id='submit_resource_usage')
 scheduler.start()
 
 
-KEEP_RUNNING = True
-def stop_container():
-    global KEEP_RUNNING
-    KEEP_RUNNING = False
-signal.signal(signal.SIGTERM, stop_container)
-
-
 def fetch_block_json(b_num):
-    data = myencode({'block_num_or_id': b_num})
-    block_info = requests.post(API_NODES[0] + '/v1/chain/get_block', data=data, timeout=10).json()
+    data = json.dumps({'block_num_or_id': b_num}).encode("utf-8")
+    block_info = requests.post(API_NODE + '/v1/chain/get_block', data=data, timeout=10).json()
     return b_num, block_info
 
 def fetch_block_range(block_range):
     try:
         original_last_block = block_range.start - 1
-        pool = ThreadPool(SIMULTANEOUS_BLOCKS)
-        results = pool.map(fetch_block_json,  block_range)
-        pool.close()
-        pool.join()
+        with ThreadPoolExecutor(max_workers=BLOCK_ACQUISITION_THREADS) as executor:
+            results = executor.map(fetch_block_json,  block_range)
         results = sorted(results, key=lambda x: x[0])
 
         date_account_resource_deltas = Counter()
@@ -140,7 +134,7 @@ def fetch_block_range(block_range):
                                     actor = action['authorization'][0]['actor']
                                     break
                                 except Exception as e:
-                                    logger.info('Action has no auth actor, using next available...')
+                                    pass # Action has no auth actor, so will next available in tx
 
                             date_account_resource_deltas[(block_date_string, actor, 'cpu')] += tx["cpu_usage_us"]
                             date_account_resource_deltas[(block_date_string, actor, 'net')] += tx["net_usage_words"]
@@ -154,35 +148,35 @@ def fetch_block_range(block_range):
         logger.error(traceback.format_exc())
         return None, None
 
-
-time.sleep(3)
+time.sleep(5)
 while KEEP_RUNNING:
+    # get last irreversible block number from chain so we don't collect reversible blocks
     try:
-        chain_info = requests.get(f'{API_NODES[0]}/v1/chain/get_info', timeout=5).json()
-        logger.info('Last Irreversible Block:' + str(chain_info['last_irreversible_block_num']))
+        lib_number = requests.get(f'{API_NODE}/v1/chain/get_info', timeout=5).json()["last_irreversible_block_num"]
     except Exception as e:
-        logger.info('Failed to get last irr block in chain: ' + str(e))
-        time.sleep(1)
+        logger.info(f'Failed to get last irreversible block - {e}')
+        time.sleep(5)
         continue
 
+    # handle absolute and relative block offsets for empty tables
     if EMPTY_TABLE_START_BLOCK > 0:
         last_block = EMPTY_TABLE_START_BLOCK - 1
     elif EMPTY_TABLE_START_BLOCK < 0:
-        last_block = chain_info['last_irreversible_block_num'] + EMPTY_TABLE_START_BLOCK - 1
+        last_block = lib_number + EMPTY_TABLE_START_BLOCK - 1
 
+    # get last block for which data has been collected
     try:
         last_block = int(redis.get('last_block'))
-        logger.info('Last Block Number in Redis: ' + str(last_block))
     except Exception as e:
         logger.info('Failed to get last block in Redis: ' + str(e))
         logger.info('Using: ' + str(last_block))
         time.sleep(1)
 
+    # loop to collect a range of blocks resource usage data every cycle
     try:
         while KEEP_RUNNING:
-            # get n blocks of data
-            target_end_block = chain_info['last_irreversible_block_num']
-            block_range = range(last_block+1, min(last_block + SIMULTANEOUS_BLOCKS + 1, target_end_block))
+            # get BLOCK_ACQUISITION_THREADS blocks of data
+            block_range = range(last_block+1, min(last_block + BLOCK_ACQUISITION_THREADS + 1, lib_number))
             if len(block_range) < 1:
                 logger.info('Pausing Block Collection Thread')
                 time.sleep(5)
@@ -197,9 +191,8 @@ while KEEP_RUNNING:
                     pipe.hincrby(key[0], f'{key[1]}-{key[2]}', date_account_resource_deltas[key])
                 pipe.set('last_block', last_block)
                 pipe.execute()
-                logger.info(last_block)
+                logger.info(f'Last collected block: {last_block}')
             time.sleep(0.5)
 
     except Exception as e:
         logger.error(e)
-
