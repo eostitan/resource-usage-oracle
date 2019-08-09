@@ -1,6 +1,8 @@
 version: '3.3'
 
 services:
+
+  # collects block_log data and saves it to redis
   python_aggregator:
     restart: always
     build: ./python_aggregator
@@ -12,6 +14,7 @@ services:
     depends_on:
       - redis
 
+  # provides http method to push transactions to API node
   eosjs_server:
     container_name: eosjsserver
     restart: always
@@ -23,9 +26,8 @@ services:
       - ./config.env
     working_dir: /home/app
     command: ["node", "app.js"]
-#    ports:
-#      - "3000:3000"
 
+  # stores all usage data
   redis:
     restart: always
     image: "redis"
