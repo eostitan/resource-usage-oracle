@@ -10,7 +10,6 @@ import pytz
 from concurrent.futures import ThreadPoolExecutor
 import requests
 import redis
-import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # get environment variables
