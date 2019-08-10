@@ -19,9 +19,12 @@ CONTRACT_ACTION = os.getenv('CONTRACT_ACTION', '')
 SUBMISSION_ACCOUNT = os.getenv('SUBMISSION_ACCOUNT', '')
 SUBMISSION_PERMISSION = os.getenv('SUBMISSION_PERMISSION', '')
 
+API_NODE = 'https://api.worbli.io'
+
 # block collection and scheduling constants
-EMPTY_TABLE_START_BLOCK = 72854758 # start of 8th Aug
-BLOCK_ACQUISITION_THREADS = 10
+#EMPTY_TABLE_START_BLOCK = 73190000 # 72854758 # start of 8th Aug on EOS
+EMPTY_TABLE_START_BLOCK = 47825000 # worbli
+BLOCK_ACQUISITION_THREADS = 20
 MAX_ACCOUNTS_PER_SUBMISSION = 10
 SUBMISSION_INTERVAL_SECONDS = 10
 
@@ -51,51 +54,55 @@ def submit_resource_usage():
         t = datetime.utcnow()
         current_date_start = datetime(t.year, t.month, t.day, tzinfo=None)
         last_block_time = datetime.utcfromtimestamp(int(redis.get('last_block_time_seconds')))
-
         previous_date_string = (current_date_start - timedelta(days=1)).strftime("%Y-%m-%d")
+        previous_date_accounts = list(set([key[:-4] for key in redis.hkeys(previous_date_string)]))
 
-        active_accounts = list(set([key[:-4] for key in redis.hkeys(previous_date_string)]))
-        logger.info(f'Active accounts: {len(active_accounts)}')
+        if last_block_time >= current_date_start:
+            current_date_string = current_date_start.strftime("%Y-%m-%d")
+            current_date_accounts = list(set([key[:-4] for key in redis.hkeys(current_date_string)]))
+            logger.info(f'Collating todays records... {len(current_date_accounts)} accounts so far.')
+
+            if len(previous_date_accounts) > 0:
+                records = []
+                actions = []
+                for account in previous_date_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
+                    cpu_usage_us = redis.hget(previous_date_string, f'{account}-cpu')
+                    net_usage_words = redis.hget(previous_date_string, f'{account}-net')
+                    record = {'account': account, 'cpu_usage_us': cpu_usage_us, 'net_usage_words': net_usage_words}
+                    records.append(record)
+
+                    action = {
+                        "account": CONTRACT_ACCOUNT,
+                        "name": CONTRACT_ACTION,
+                        "authorization": [{
+                            "actor": SUBMISSION_ACCOUNT,
+                            "permission": SUBMISSION_PERMISSION,
+                        }],
+                        "data": {"source": SUBMISSION_ACCOUNT,
+                            "account": account, 
+                            "cpu_quantity": cpu_usage_us,
+                            "net_quantity": net_usage_words}
+                    }
+                    actions.append(action)
+
+                logger.info(f'Submitting resource usage stats for {previous_date_string}...')
+                tx = {'actions': actions}
+                logger.info(tx)
+            #    response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=20).json()
+            #    logger.info(response)
+                logger.info('Submitted resource usage stats!')
+
+                # remove data once successfully sent
+                # todo - handle if tx doesn't get included in immutable block
+                for account in previous_date_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
+                    redis.hdel(previous_date_string, f'{account}-cpu')
+                    redis.hdel(previous_date_string, f'{account}-net')
 
         # if last block was yesterday, then aggregation is not finished, so don't submit
         if last_block_time < current_date_start:
-            logger.info(f'No data ready to submit for {previous_date_string}')
-            return
+            if len(previous_date_accounts) > 0:
+                logger.info(f'Collating yesterdays records... {len(previous_date_accounts)} accounts so far.')
 
-        records = []
-        actions = []
-        for account in active_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
-            cpu_usage_us = redis.hget(previous_date_string, f'{account}-cpu')
-            net_usage_words = redis.hget(previous_date_string, f'{account}-net')
-            record = {'account': account, 'cpu_usage_us': cpu_usage_us, 'net_usage_words': net_usage_words}
-            records.append(record)
-
-            action = {
-                "account": CONTRACT_ACCOUNT,
-                "name": CONTRACT_ACTION,
-                "authorization": [{
-                    "actor": SUBMISSION_ACCOUNT,
-                    "permission": SUBMISSION_PERMISSION,
-                }],
-                "data": {"source": SUBMISSION_ACCOUNT,
-                    "account": account, 
-                    "cpu_quantity": cpu_usage_us,
-                    "net_quantity": net_usage_words}
-            }
-            actions.append(action)
-
-        logger.info(f'Submitting resource usage stats for {previous_date_string}...')
-        tx = {'actions': actions}
-        logger.info(tx)
-    #    response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=20).json()
-    #    logger.info(response)
-        logger.info('Submitted resource usage stats!')
-
-        # remove data once successfully sent
-        # todo - handle if tx doesn't get included in immutable block
-        for account in active_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
-            redis.hdel(previous_date_string, f'{account}-cpu')
-            redis.hdel(previous_date_string, f'{account}-net')
 
     except Exception as e:
         logger.info('Could not submit tx!')
@@ -185,9 +192,9 @@ while KEEP_RUNNING:
             # get BLOCK_ACQUISITION_THREADS blocks of data
             block_range = range(last_block+1, min(last_block + BLOCK_ACQUISITION_THREADS + 1, lib_number))
             if len(block_range) < 1:
-                logger.info('Reached last irreversible block - block collection paused')
-                time.sleep(5)
-                logger.info('Restarting block collection')
+                logger.info('Reached last irreversible block - paused for 10 seconds...')
+                time.sleep(10)
+                logger.info('Restarting block collection...')
                 break
 
             last_block, last_block_time, date_account_resource_deltas = fetch_block_range(block_range)
@@ -204,3 +211,4 @@ while KEEP_RUNNING:
 
     except Exception as e:
         logger.error(f'Failed to collect block range: {e}')
+        time.sleep(10)
