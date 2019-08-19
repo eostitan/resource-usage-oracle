@@ -8,6 +8,7 @@ services:
     build: ./python_aggregator
     volumes:
       - ./python_aggregator:/usr/src/app
+      - "./redis:/data"
     env_file:
       - ./config.env
     command: ["python", "src/run.py"]

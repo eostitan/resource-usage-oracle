@@ -1,3 +1,4 @@
+import csv
 import logging
 import traceback
 import json
@@ -18,12 +19,9 @@ CONTRACT_ACCOUNT = os.getenv('CONTRACT_ACCOUNT', '')
 CONTRACT_ACTION = os.getenv('CONTRACT_ACTION', '')
 SUBMISSION_ACCOUNT = os.getenv('SUBMISSION_ACCOUNT', '')
 SUBMISSION_PERMISSION = os.getenv('SUBMISSION_PERMISSION', '')
-
-API_NODE = 'https://api.worbli.io'
+EMPTY_DB_START_BLOCK = os.getenv('EMPTY_DB_START_BLOCK', '')
 
 # block collection and scheduling constants
-#EMPTY_TABLE_START_BLOCK = 73190000 # 72854758 # start of 8th Aug on EOS
-EMPTY_TABLE_START_BLOCK = 47825000 # worbli
 BLOCK_ACQUISITION_THREADS = 20
 MAX_ACCOUNTS_PER_SUBMISSION = 10
 SUBMISSION_INTERVAL_SECONDS = 10
@@ -47,6 +45,11 @@ logger.addHandler(handler)
 # establish connection to redis server
 redis = redis.StrictRedis(host='redis', port=6379, db=0, decode_responses=True)
 
+# initialise db if no redis dump file is present
+if not os.path.exists('/data/dump.rdb'):
+    redis.set('last_block', EMPTY_DB_START_BLOCK)
+    logger.info('Database Initialised!')
+    logger.info(f'Starting at block number {EMPTY_DB_START_BLOCK}')
 
 # submit data to contract according to scheduling constants
 def submit_resource_usage():
@@ -55,19 +58,19 @@ def submit_resource_usage():
         current_date_start = datetime(t.year, t.month, t.day, tzinfo=None)
         last_block_time = datetime.utcfromtimestamp(int(redis.get('last_block_time_seconds')))
         previous_date_string = (current_date_start - timedelta(days=1)).strftime("%Y-%m-%d")
-        previous_date_accounts = list(set([key[:-4] for key in redis.hkeys(previous_date_string)]))
+        previous_date_accounts = list(set([key[:-12] for key in redis.hkeys(previous_date_string)]))
 
         if last_block_time >= current_date_start:
             current_date_string = current_date_start.strftime("%Y-%m-%d")
-            current_date_accounts = list(set([key[:-4] for key in redis.hkeys(current_date_string)]))
+            current_date_accounts = list(set([key[:-12] for key in redis.hkeys(current_date_string)]))
             logger.info(f'Collating todays records... {len(current_date_accounts)} accounts so far.')
 
             if len(previous_date_accounts) > 0:
                 records = []
                 actions = []
                 for account in previous_date_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
-                    cpu_usage_us = redis.hget(previous_date_string, f'{account}-cpu')
-                    net_usage_words = redis.hget(previous_date_string, f'{account}-net')
+                    cpu_usage_us = redis.hget(previous_date_string, f'{account}-cpu-current')
+                    net_usage_words = redis.hget(previous_date_string, f'{account}-net-current')
                     record = {'account': account, 'cpu_usage_us': cpu_usage_us, 'net_usage_words': net_usage_words}
                     records.append(record)
 
@@ -92,11 +95,11 @@ def submit_resource_usage():
             #    logger.info(response)
                 logger.info('Submitted resource usage stats!')
 
-                # remove data once successfully sent
+                # remove data from -current once successfully sent
                 # todo - handle if tx doesn't get included in immutable block
                 for account in previous_date_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
-                    redis.hdel(previous_date_string, f'{account}-cpu')
-                    redis.hdel(previous_date_string, f'{account}-net')
+                    redis.hdel(previous_date_string, f'{account}-cpu-current')
+                    redis.hdel(previous_date_string, f'{account}-net-current')
 
         # if last block was yesterday, then aggregation is not finished, so don't submit
         if last_block_time < current_date_start:
@@ -108,8 +111,43 @@ def submit_resource_usage():
         logger.info('Could not submit tx!')
         logger.info(traceback.format_exc())
 
+# prune redis database, keeping only the last 7 days worth
+def prune_data():
+    try:
+        for key in redis.keys():
+            if not key in ['last_block', 'last_block_time_seconds']:
+                if datetime.strptime(key, '%Y-%m-%d') < datetime.utcnow() - timedelta(days=8):
+                    redis.delete(key)
+                    logger.info(f'Deleted old data from DB: {key}')
+    except Exception as e:
+        logger.info('Could not prune data!')
+        logger.info(traceback.format_exc())
+
+# exports all archived data to a single CSV file at redis/account-usage.csv
+def export_data_to_csv():
+    try:
+        records = []
+        for key in redis.keys():
+            if not key in ['last_block', 'last_block_time_seconds']:
+                accounts = list(set([key[:-12] for key in redis.hkeys(key)]))
+                for account in accounts:
+                    cpu_usage_us = redis.hget(key, f'{account}-cpu-archive')
+                    net_usage_words = redis.hget(key, f'{account}-net-archive')
+                    record = {'date': key, 'account': account, 'cpu_usage_us': cpu_usage_us, 'net_usage_words': net_usage_words}
+                    records.append(record)
+        with open('/data/accounts-usage.csv', 'w', encoding='utf8', newline='') as output_file:
+            fc = csv.DictWriter(output_file, fieldnames=records[0].keys())
+            fc.writeheader()
+            fc.writerows(records)
+        logger.info('Exported DB to CSV!')
+    except Exception as e:
+        logger.info('Could not export data!')
+        logger.info(traceback.format_exc())
+
 scheduler = BackgroundScheduler()
 scheduler.add_job(submit_resource_usage, 'interval', seconds=SUBMISSION_INTERVAL_SECONDS, id='submit_resource_usage')
+scheduler.add_job(prune_data, 'interval', minutes=60, id='prune_data')
+scheduler.add_job(export_data_to_csv, 'interval', minutes=15, id='export_data_to_csv')
 scheduler.start()
 
 
@@ -172,19 +210,14 @@ while KEEP_RUNNING:
         time.sleep(5)
         continue
 
-    # handle absolute and relative block offsets for empty tables
-    if EMPTY_TABLE_START_BLOCK > 0:
-        last_block = EMPTY_TABLE_START_BLOCK - 1
-    elif EMPTY_TABLE_START_BLOCK < 0:
-        last_block = lib_number + EMPTY_TABLE_START_BLOCK - 1
-
     # get last block for which data has been collected
     try:
         last_block = int(redis.get('last_block'))
     except Exception as e:
-        logger.info(f'Failed to get last block in Redis: {e}')
-        logger.info(f'Using: {last_block}')
-        time.sleep(5)
+        logger.error(f'Failed to get last block number in DB. It may not be Initialised.')
+        logger.info('Will try again in 10 seconds...')
+        time.sleep(10)
+        continue
 
     # loop to collect a range of blocks resource usage data every cycle
     try:
@@ -202,7 +235,8 @@ while KEEP_RUNNING:
                 # add resource usage to redis in atomic transaction
                 pipe = redis.pipeline()
                 for key in date_account_resource_deltas:
-                    pipe.hincrby(key[0], f'{key[1]}-{key[2]}', date_account_resource_deltas[key])
+                    pipe.hincrby(key[0], f'{key[1]}-{key[2]}-current', date_account_resource_deltas[key])
+                    pipe.hincrby(key[0], f'{key[1]}-{key[2]}-archive', date_account_resource_deltas[key])
                 pipe.set('last_block', last_block)
                 pipe.set('last_block_time_seconds', int((last_block_time - datetime.utcfromtimestamp(0)).total_seconds()))
                 pipe.execute()

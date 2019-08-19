@@ -4,6 +4,10 @@ Python app which collects CPU/NET usage for all transactions using the get_block
 
 Data is stored in Redis which is persisted to file every 5 minutes.
 
+All data is pruned to the most recent 7 days every hour.
+
+A CSV file of the all data is exported to redis/accounts-usage.csv every 15 minutes.
+
 Data submission uses a small node.js Express http server, as I'm not aware of an efficient Python library for pushing transactions.
 
 ### How to run
@@ -22,7 +26,5 @@ Data submission uses a small node.js Express http server, as I'm not aware of an
 ### TODO
 - Ensure this submits ok to real contract when available
 - Organise submission schedule so that previous days data is sent 1 hour after it ends, and spread out to ensure a low tx rate
-- Add an easy way to export collected data to a csv file
-- Add a schedule for pruning old data from redis
 - Add checks to ensure all data made it into immutable blocks?
 - Stress testing by using contract on EOS mainnet?
