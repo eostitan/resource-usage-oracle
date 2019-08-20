@@ -58,22 +58,18 @@ def submit_resource_usage():
         current_date_start = datetime(t.year, t.month, t.day, tzinfo=None)
         last_block_time = datetime.utcfromtimestamp(int(redis.get('last_block_time_seconds')))
         previous_date_string = (current_date_start - timedelta(days=1)).strftime("%Y-%m-%d")
-        previous_date_accounts = list(set([key[:-12] for key in redis.hkeys(previous_date_string)]))
+        previous_date_accounts = [key[:-12] for key in redis.hkeys(previous_date_string) if key[-12:] == '-cpu-current']
 
         if last_block_time >= current_date_start:
             current_date_string = current_date_start.strftime("%Y-%m-%d")
-            current_date_accounts = list(set([key[:-12] for key in redis.hkeys(current_date_string)]))
+            current_date_accounts = [key[:-12] for key in redis.hkeys(current_date_string) if key[-12:] == '-cpu-current']
             logger.info(f'Collating todays records... {len(current_date_accounts)} accounts so far.')
 
             if len(previous_date_accounts) > 0:
-                records = []
                 actions = []
                 for account in previous_date_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
                     cpu_usage_us = redis.hget(previous_date_string, f'{account}-cpu-current')
                     net_usage_words = redis.hget(previous_date_string, f'{account}-net-current')
-                    record = {'account': account, 'cpu_usage_us': cpu_usage_us, 'net_usage_words': net_usage_words}
-                    records.append(record)
-
                     action = {
                         "account": CONTRACT_ACCOUNT,
                         "name": CONTRACT_ACTION,
