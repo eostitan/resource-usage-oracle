@@ -20,6 +20,7 @@ CONTRACT_ACTION = os.getenv('CONTRACT_ACTION', '')
 SUBMISSION_ACCOUNT = os.getenv('SUBMISSION_ACCOUNT', '')
 SUBMISSION_PERMISSION = os.getenv('SUBMISSION_PERMISSION', '')
 EMPTY_DB_START_BLOCK = os.getenv('EMPTY_DB_START_BLOCK', '')
+EXCLUDED_ACCOUNTS = os.getenv('EXCLUDED_ACCOUNTS','').split(',')
 
 # block collection and scheduling constants
 BLOCK_ACQUISITION_THREADS = 20
@@ -187,8 +188,9 @@ def fetch_block_range(block_range):
                                 except Exception as e:
                                     pass # Action has no auth actor, so will next available in tx
 
-                            date_account_resource_deltas[(block_date_string, actor, 'cpu')] += tx["cpu_usage_us"]
-                            date_account_resource_deltas[(block_date_string, actor, 'net')] += tx["net_usage_words"]
+                            if actor not in EXCLUDED_ACCOUNTS:
+                                date_account_resource_deltas[(block_date_string, actor, 'cpu')] += tx["cpu_usage_us"]
+                                date_account_resource_deltas[(block_date_string, actor, 'net')] += tx["net_usage_words"]
 
             except Exception as e:
                 logger.error(traceback.format_exc())
