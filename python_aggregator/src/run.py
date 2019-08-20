@@ -57,7 +57,8 @@ def submit_resource_usage():
         t = datetime.utcnow()
         current_date_start = datetime(t.year, t.month, t.day, tzinfo=None)
         last_block_time = datetime.utcfromtimestamp(int(redis.get('last_block_time_seconds')))
-        previous_date_string = (current_date_start - timedelta(days=1)).strftime("%Y-%m-%d")
+        previous_date_start = current_date_start - timedelta(days=1)
+        previous_date_string = previous_date_start.strftime("%Y-%m-%d")
         previous_date_accounts = [key[:-12] for key in redis.hkeys(previous_date_string) if key[-12:] == '-cpu-current']
 
         if last_block_time >= current_date_start:
@@ -80,7 +81,8 @@ def submit_resource_usage():
                         "data": {"source": SUBMISSION_ACCOUNT,
                             "account": account, 
                             "cpu_quantity": cpu_usage_us,
-                            "net_quantity": net_usage_words}
+                            "net_quantity": net_usage_words,
+                            "time": int(previous_date_start.timestamp())}
                     }
                     actions.append(action)
 
