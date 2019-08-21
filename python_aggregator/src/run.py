@@ -90,15 +90,16 @@ def submit_resource_usage():
                 logger.info(f'Submitting resource usage stats for {previous_date_string}...')
                 tx = {'actions': actions}
                 logger.info(tx)
-            #    response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=20).json()
-            #    logger.info(response)
-                logger.info('Submitted resource usage stats!')
+                response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=20).json()
+                logger.info(response)
+#                logger.info('Submitted resource usage stats!')
 
                 # remove data from -current once successfully sent
-                # todo - handle if tx doesn't get included in immutable block
                 for account in previous_date_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
                     redis.hdel(previous_date_string, f'{account}-cpu-current')
                     redis.hdel(previous_date_string, f'{account}-net-current')
+
+                # todo - handle if tx doesn't get included in immutable block?
 
         # if last block was yesterday, then aggregation is not finished, so don't submit
         if last_block_time < current_date_start:

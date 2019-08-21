@@ -24,6 +24,6 @@ Data submission uses a small node.js Express http server, as I'm not aware of an
 2) `rm redis/dump.rdb`
 
 ### TODO
-- Ensure this submits ok to real contract when available
+- Error notification if there are problems submitting data
 - Add checks to ensure all data made it into immutable blocks?
 - Stress testing by using contract on EOS mainnet?
