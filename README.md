@@ -18,6 +18,8 @@ Data submission uses a small node.js Express http server, as I'm not aware of an
 
 ### To monitor log file
 `tail -f python_aggregator/debug.log`
+...or for just errors...
+`tail -f python_aggregator/debug.log | grep 'ERROR'`
 
 ### To delete retained redis data
 1) `docker-compose down`

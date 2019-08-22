@@ -46,15 +46,28 @@ logger.addHandler(handler)
 # establish connection to redis server
 redis = redis.StrictRedis(host='redis', port=6379, db=0, decode_responses=True)
 
-# initialise db if no redis dump file is present
+# if no redis dump file is present, determine starting block number and initialise db
 if not os.path.exists('/data/dump.rdb'):
-    redis.set('last_block', EMPTY_DB_START_BLOCK)
-    logger.info('Database Initialised!')
-    logger.info(f'Starting at block number {EMPTY_DB_START_BLOCK}')
+    try:
+        if EMPTY_DB_START_BLOCK:
+            start_block_num = EMPTY_DB_START_BLOCK
+        else:
+            # estimate block num a couple of minutes before the start of yesterday
+            start_block_num = requests.get(f'{API_NODE}/v1/chain/get_info', timeout=5).json()["last_irreversible_block_num"]
+            logger.info(start_block_num)
+            now = datetime.utcnow()
+            blocks_since_midnight = int((now - now.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds() * 2)
+            start_block_num = start_block_num - blocks_since_midnight - (2 * 3600 * 24) - 120
+        redis.set('last_block', start_block_num)
+        logger.info('Database Initialised!')
+    except:
+        logger.error('Could not initialise database!')
+        logger.error(traceback.format_exc())
 
 # submit data to contract according to scheduling constants
 def submit_resource_usage():
     try:
+        response = ''
         t = datetime.utcnow()
         current_date_start = datetime(t.year, t.month, t.day, tzinfo=None)
         last_block_time = datetime.utcfromtimestamp(int(redis.get('last_block_time_seconds')))
@@ -90,9 +103,8 @@ def submit_resource_usage():
                 logger.info(f'Submitting resource usage stats for {previous_date_string}...')
                 tx = {'actions': actions}
                 logger.info(tx)
-                response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=20).json()
-                logger.info(response)
-#                logger.info('Submitted resource usage stats!')
+                response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=10).json()
+                logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
 
                 # remove data from -current once successfully sent
                 for account in previous_date_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
@@ -108,8 +120,8 @@ def submit_resource_usage():
 
 
     except Exception as e:
-        logger.info('Could not submit tx!')
-        logger.info(traceback.format_exc())
+        logger.error('Could not submit tx!')
+        logger.error(response.get('error', traceback.format_exc()))
 
 # prune redis database, keeping only the last 7 days worth
 def prune_data():
