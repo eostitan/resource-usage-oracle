@@ -1,4 +1,4 @@
-## EOSIO Resource Usage Aggregator
+## EOSIO Resource Usage Oracle
 
 Python app which collates CPU/NET usage for all accounts interacting with the blockchain each day. It gathers from the get_blocks nodeos API, and submits to an EOSIO oracle contract after midnight once the previous days data has been received.
 
@@ -18,7 +18,9 @@ Data submission uses a small node.js Express http server, as I'm not aware of an
 
 ### To monitor log file
 `tail -f python_aggregator/debug.log`
+
 ...or for just errors...
+
 `tail -f python_aggregator/debug.log | grep 'ERROR'`
 
 ### To delete retained redis data
@@ -26,6 +28,5 @@ Data submission uses a small node.js Express http server, as I'm not aware of an
 2) `rm redis/dump.rdb`
 
 ### TODO
-- Error notification if there are problems submitting data
 - Add checks to ensure all data made it into immutable blocks?
 - Stress testing by using contract on EOS mainnet?
