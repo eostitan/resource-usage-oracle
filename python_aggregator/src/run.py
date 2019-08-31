@@ -156,7 +156,7 @@ def submit_resource_usage():
 def prune_data():
     try:
         for key in redis.keys():
-            if not key in ['last_block', 'last_block_time_seconds']:
+            if not key in ['last_block', 'last_block_time_seconds', 'last_usage_total_sent']:
                 if datetime.strptime(key, '%Y-%m-%d') < datetime.utcnow() - timedelta(days=8):
                     redis.delete(key)
                     logger.info(f'Deleted old data from DB: {key}')
@@ -169,7 +169,7 @@ def export_data_to_csv():
     try:
         records = []
         for key in redis.keys():
-            if not key in ['last_block', 'last_block_time_seconds']:
+            if not key in ['last_block', 'last_block_time_seconds', 'last_usage_total_sent']:
                 accounts = list(set([key[:-12] for key in redis.hkeys(key)]))
                 for account in accounts:
                     cpu_usage_us = redis.hget(key, f'{account}-cpu-archive')
