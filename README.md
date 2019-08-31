@@ -27,6 +27,5 @@ Data submission uses a small node.js Express http server, as I'm not aware of an
 1) `docker-compose down`
 2) `rm redis/dump.rdb`
 
-### TODO
-- Add checks to ensure all data made it into immutable blocks?
-- Stress testing by using contract on EOS mainnet?
+### LIMITATIONS
+- Data submission is on a best efforts basis, confirmed only at the API endpoint. There are currently no checks to ensure it was added to an immutable block.
