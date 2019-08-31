@@ -67,7 +67,7 @@ if not os.path.exists('/data/dump.rdb'):
 # submit data to contract according to scheduling constants
 def submit_resource_usage():
     try:
-        response = ''
+        response = {}
         t = datetime.utcnow()
         current_date_start = datetime(t.year, t.month, t.day, tzinfo=None)
         last_block_time = datetime.utcfromtimestamp(int(redis.get('last_block_time_seconds')))
@@ -81,13 +81,42 @@ def submit_resource_usage():
             logger.info(f'Collating todays records... {len(current_date_accounts)} accounts so far.')
 
             if len(previous_date_accounts) > 0:
+
+                # if totals for previous date haven't been sent, calculate and send them now
+                if redis.get('last_usage_total_sent') != previous_date_string:
+                    total_cpu_usage_us = 0
+                    total_net_usage_words = 0
+                    for account in previous_date_accounts:
+                        total_cpu_usage_us += int(redis.hget(previous_date_string, f'{account}-cpu-current'))
+                        total_net_usage_words += int(redis.hget(previous_date_string, f'{account}-net-current'))
+                    action = {
+                        "account": CONTRACT_ACCOUNT,
+                        "name": "settotal",
+                        "authorization": [{
+                            "actor": SUBMISSION_ACCOUNT,
+                            "permission": SUBMISSION_PERMISSION,
+                        }],
+                        "data": {"source": SUBMISSION_ACCOUNT,
+                            "total_cpu_quantity": total_cpu_usage_us,
+                            "total_net_quantity": total_net_usage_words,
+                            "time": int(previous_date_start.timestamp())}
+                    }
+                    logger.info(f'Submitting resource usage totals for {previous_date_string}...')
+                    tx = {'actions': [action]}
+                    logger.info(tx)
+                    response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=10).json()
+                    logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
+                    redis.set('last_usage_total_sent', previous_date_string)
+                    time.sleep(5)
+
+                # send ubsubmitted data
                 actions = []
                 for account in previous_date_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
                     cpu_usage_us = redis.hget(previous_date_string, f'{account}-cpu-current')
                     net_usage_words = redis.hget(previous_date_string, f'{account}-net-current')
                     action = {
                         "account": CONTRACT_ACCOUNT,
-                        "name": CONTRACT_ACTION,
+                        "name": "adddistrib",
                         "authorization": [{
                             "actor": SUBMISSION_ACCOUNT,
                             "permission": SUBMISSION_PERMISSION,
