@@ -14,7 +14,7 @@ import redis
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # get environment variables
-API_NODE = os.getenv('EOSIO_API_NODE', '')
+BLOCKS_API_NODE = os.getenv('EOSIO_BLOCKS_API_NODE', '')
 CONTRACT_ACCOUNT = os.getenv('CONTRACT_ACCOUNT', '')
 CONTRACT_ACTION = os.getenv('CONTRACT_ACTION', '')
 SUBMISSION_ACCOUNT = os.getenv('SUBMISSION_ACCOUNT', '')
@@ -53,7 +53,7 @@ if not os.path.exists('/data/dump.rdb'):
             start_block_num = EMPTY_DB_START_BLOCK
         else:
             # estimate block num a couple of minutes before the start of yesterday
-            start_block_num = requests.get(f'{API_NODE}/v1/chain/get_info', timeout=5).json()["last_irreversible_block_num"]
+            start_block_num = requests.get(f'{BLOCKS_API_NODE}/v1/chain/get_info', timeout=5).json()["last_irreversible_block_num"]
             logger.info(start_block_num)
             now = datetime.utcnow()
             blocks_since_midnight = int((now - now.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds() * 2)
@@ -91,15 +91,16 @@ def submit_resource_usage():
                         total_net_usage_words += int(redis.hget(previous_date_string, f'{account}-net-current'))
                     action = {
                         "account": CONTRACT_ACCOUNT,
-                        "name": "settotal",
+                        "name": "settotalusg",
                         "authorization": [{
                             "actor": SUBMISSION_ACCOUNT,
                             "permission": SUBMISSION_PERMISSION,
                         }],
                         "data": {"source": SUBMISSION_ACCOUNT,
-                            "total_cpu_quantity": total_cpu_usage_us,
-                            "total_net_quantity": total_net_usage_words,
-                            "time": int(previous_date_start.timestamp())}
+                            "total_cpu_us": total_cpu_usage_us,
+                            "total_net_words": total_net_usage_words,
+                            "period_start": previous_date_start.strftime('%Y-%m-%dT%H:%M:%S')
+                        }
                     }
                     logger.info(f'Submitting resource usage totals for {previous_date_string}...')
                     tx = {'actions': [action]}
@@ -113,19 +114,20 @@ def submit_resource_usage():
                 actions = []
                 for account in previous_date_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
                     cpu_usage_us = redis.hget(previous_date_string, f'{account}-cpu-current')
-                    net_usage_words = redis.hget(previous_date_string, f'{account}-net-current')
                     action = {
                         "account": CONTRACT_ACCOUNT,
-                        "name": "adddistrib",
+                        "name": "addactusg",
                         "authorization": [{
                             "actor": SUBMISSION_ACCOUNT,
                             "permission": SUBMISSION_PERMISSION,
                         }],
                         "data": {"source": SUBMISSION_ACCOUNT,
-                            "account": account, 
-                            "cpu_quantity": cpu_usage_us,
-                            "net_quantity": net_usage_words,
-                            "time": int(previous_date_start.timestamp())}
+                            "dataset_id": 1,
+                            "data": [
+                                {"a": account, "u": cpu_usage_us}
+                            ],
+                            "period_start": previous_date_start.strftime('%Y-%m-%dT%H:%M:%S')
+                        }
                     }
                     actions.append(action)
 
@@ -193,7 +195,7 @@ scheduler.start()
 
 
 def fetch_block_json(b_num):
-    block_info = requests.post(API_NODE + '/v1/chain/get_block', json={'block_num_or_id': b_num}, timeout=10).json()
+    block_info = requests.post(BLOCKS_API_NODE + '/v1/chain/get_block', json={'block_num_or_id': b_num}, timeout=10).json()
     return b_num, block_info
 
 def fetch_block_range(block_range):
@@ -246,7 +248,7 @@ def fetch_block_range(block_range):
 while KEEP_RUNNING:
     # get last irreversible block number from chain so we don't collect reversible blocks
     try:
-        lib_number = requests.get(f'{API_NODE}/v1/chain/get_info', timeout=5).json()["last_irreversible_block_num"]
+        lib_number = requests.get(f'{BLOCKS_API_NODE}/v1/chain/get_info', timeout=5).json()["last_irreversible_block_num"]
     except Exception as e:
         logger.info(f'Failed to get last irreversible block - {e}')
         time.sleep(5)

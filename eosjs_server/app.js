@@ -11,7 +11,7 @@ const fetch = require('node-fetch');
 const { TextEncoder, TextDecoder } = require('util');
 const key = process.env.SUBMISSION_PRIVATE_KEY;
 const signatureProvider = new JsSignatureProvider([key]);
-const rpc = new JsonRpc(process.env.EOSIO_API_NODE, { fetch });
+const rpc = new JsonRpc(process.env.EOSIO_PUSH_API_NODE, { fetch });
 const api = new Api({ rpc, signatureProvider, textDecoder: new TextDecoder(), textEncoder: new TextEncoder() });
 
 app.use(express.json());
