@@ -5,6 +5,7 @@ import json
 import os
 import time
 import signal
+import hashlib
 from collections import Counter
 from datetime import datetime, timedelta, date
 import pytz
@@ -259,10 +260,37 @@ def fetch_block_range(block_range):
 def aggregate_period_data(period_start):
     logger.info(f'Aggregating data for period {period_start}...')
 
-    # for all accounts for the redis_last_block_period
-    # go through in batches of n accounts, and create lists of dicts for each dataset
-    # add each json/list to a DB 
-    # period_start, dataset_id, json  --  (dataset_id == 0 for totals)
+    period_accounts = sorted([key[:-12] for key in redis.hkeys(period_start) if key[-12:] == '-cpu-current'])
+
+    total_cpu_usage_us = 0
+    total_net_usage_words = 0
+    usage_datasets = [[]]
+    usage_dataset_hashes = []
+    if len(period_accounts) > 0:
+        for i in range(0, len(period_accounts), DATASET_BATCH_SIZE):
+            individual_usage_data = []
+            individual_usage_hash_string = ''
+            accounts = period_accounts[i:i+DATASET_BATCH_SIZE]
+            if len(accounts) > 0:
+                for account in accounts:
+                    cpu_usage = int(redis.hget(period_start, f'{account}-cpu-current'))
+                    net_usage = int(redis.hget(period_start, f'{account}-net-current'))
+                    individual_usage_data.append({'a': account, 'u': cpu_usage})
+                    individual_usage_hash_string += account + str(cpu_usage)
+                    total_cpu_usage_us += cpu_usage
+                    total_net_usage_words += net_usage
+            else:
+                pass # finished
+            usage_datasets.append(individual_usage_data)
+            usage_dataset_hashes.append(hashlib.sha256(individual_usage_hash_string.encode("utf8")).hexdigest())
+
+    total_usage_hash = hashlib.sha256((str(total_cpu_usage_us) + str(total_net_usage_words)).encode("utf8")).hexdigest()
+    all_data_hash = hashlib.sha256(''.join(usage_dataset_hashes).encode("utf8")).hexdigest()
+
+    logger.info('Usage Datasets')
+    logger.info(usage_datasets)
+    logger.info(usage_dataset_hashes)
+    logger.info(f'Total CPU: {total_cpu_usage_us}, Total NET: {total_net_usage_words}, Totals Hash: {total_usage_hash}, All Data hash: {all_data_hash}')
 
 
 while KEEP_RUNNING:
