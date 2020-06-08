@@ -15,12 +15,15 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 # get environment variables
 BLOCKS_API_NODE = os.getenv('EOSIO_BLOCKS_API_NODE', '')
+PUSH_API_NODE = os.getenv('EOSIO_PUSH_API_NODE', '')
 CONTRACT_ACCOUNT = os.getenv('CONTRACT_ACCOUNT', '')
 CONTRACT_ACTION = os.getenv('CONTRACT_ACTION', '')
 SUBMISSION_ACCOUNT = os.getenv('SUBMISSION_ACCOUNT', '')
 SUBMISSION_PERMISSION = os.getenv('SUBMISSION_PERMISSION', '')
 EMPTY_DB_START_BLOCK = os.getenv('EMPTY_DB_START_BLOCK', '')
 EXCLUDED_ACCOUNTS = os.getenv('EXCLUDED_ACCOUNTS','').split(',')
+DATA_PERIOD_SECONDS = int(os.getenv('DATA_PERIOD_SECONDS', 24*3600))
+DATASET_BATCH_SIZE =  int(os.getenv('DATASET_BATCH_SIZE', 100))
 
 # block collection and scheduling constants
 BLOCK_ACQUISITION_THREADS = 20
@@ -57,7 +60,8 @@ if not os.path.exists('/data/dump.rdb'):
             logger.info(start_block_num)
             now = datetime.utcnow()
             blocks_since_midnight = int((now - now.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds() * 2)
-            start_block_num = start_block_num - blocks_since_midnight - (2 * 3600 * 24) - 120
+#            start_block_num = start_block_num - blocks_since_midnight - (2 * 3600 * 24) - 120
+            start_block_num = start_block_num - blocks_since_midnight - (2 * 3600 * 24) + 25000
         redis.set('last_block', start_block_num)
         logger.info('Database Initialised!')
     except:
@@ -188,11 +192,10 @@ def export_data_to_csv():
         logger.info(traceback.format_exc())
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(submit_resource_usage, 'interval', seconds=SUBMISSION_INTERVAL_SECONDS, id='submit_resource_usage')
-scheduler.add_job(prune_data, 'interval', minutes=60, id='prune_data')
-scheduler.add_job(export_data_to_csv, 'interval', minutes=15, id='export_data_to_csv')
-scheduler.start()
-
+#scheduler.add_job(submit_resource_usage, 'interval', seconds=SUBMISSION_INTERVAL_SECONDS, id='submit_resource_usage')
+#scheduler.add_job(prune_data, 'interval', minutes=60, id='prune_data')
+#scheduler.add_job(export_data_to_csv, 'interval', minutes=15, id='export_data_to_csv')
+#scheduler.start()
 
 def fetch_block_json(b_num):
     block_info = requests.post(BLOCKS_API_NODE + '/v1/chain/get_block', json={'block_num_or_id': b_num}, timeout=10).json()
@@ -205,6 +208,7 @@ def fetch_block_range(block_range):
             results = executor.map(fetch_block_json,  block_range)
         results = sorted(results, key=lambda x: x[0]) # sort results by block number
 
+        block_period_start = None
         date_account_resource_deltas = Counter()
         for result in results:
             block_number, block_info = result
@@ -213,8 +217,15 @@ def fetch_block_range(block_range):
                 if not isinstance(block_number, int):
                     raise Exception('Returned block_number is not an Integer as expected.')
 
-                block_time = datetime.strptime(block_info['timestamp']+'000', '%Y-%m-%dT%H:%M:%S.%f')
-                block_date_string = block_time.strftime("%Y-%m-%d")
+                new_block_time_seconds = datetime.strptime(block_info['timestamp']+'000', '%Y-%m-%dT%H:%M:%S.%f').timestamp()
+                new_block_period_start = int((int(new_block_time_seconds) // DATA_PERIOD_SECONDS) * DATA_PERIOD_SECONDS)
+
+                # ensure that block range only includes blocks from a single period
+                if block_period_start:
+                    if new_block_period_start != block_period_start:
+                        break
+
+                block_period_start = new_block_period_start
 
                 for itx, tx in enumerate(block_info['transactions']):
                     if tx['status'] == 'executed':
@@ -233,17 +244,26 @@ def fetch_block_range(block_range):
                                     pass # Action has no auth actor, so will next available in tx
 
                             if actor not in EXCLUDED_ACCOUNTS:
-                                date_account_resource_deltas[(block_date_string, actor, 'cpu')] += tx["cpu_usage_us"]
-                                date_account_resource_deltas[(block_date_string, actor, 'net')] += tx["net_usage_words"]
+                                date_account_resource_deltas[(block_period_start, actor, 'cpu')] += tx["cpu_usage_us"]
+                                date_account_resource_deltas[(block_period_start, actor, 'net')] += tx["net_usage_words"]
 
             except Exception as e:
                 logger.error(traceback.format_exc())
 
-        return block_number, block_time, date_account_resource_deltas
+        return block_number, block_period_start, date_account_resource_deltas
 
     except Exception as e:
         logger.error(traceback.format_exc())
         return None, None
+
+def aggregate_period_data(period_start):
+    logger.info(f'Aggregating data for period {period_start}...')
+
+    # for all accounts for the redis_last_block_period
+    # go through in batches of n accounts, and create lists of dicts for each dataset
+    # add each json/list to a DB 
+    # period_start, dataset_id, json  --  (dataset_id == 0 for totals)
+
 
 while KEEP_RUNNING:
     # get last irreversible block number from chain so we don't collect reversible blocks
@@ -274,17 +294,24 @@ while KEEP_RUNNING:
                 logger.info('Restarting block collection...')
                 break
 
-            last_block, last_block_time, date_account_resource_deltas = fetch_block_range(block_range)
+            last_block, last_block_period_start, date_account_resource_deltas = fetch_block_range(block_range)
             if last_block:
+
+                # if the data belongs to the next day and there is previous data, aggregate it for sending to contract
+                redis_last_block_period_start = redis.get('last_block_period_start')
+                if redis_last_block_period_start:
+                    if last_block_period_start > int(redis_last_block_period_start):
+                        aggregate_period_data(redis_last_block_period_start)
+
                 # add resource usage to redis in atomic transaction
                 pipe = redis.pipeline()
                 for key in date_account_resource_deltas:
                     pipe.hincrby(key[0], f'{key[1]}-{key[2]}-current', date_account_resource_deltas[key])
                     pipe.hincrby(key[0], f'{key[1]}-{key[2]}-archive', date_account_resource_deltas[key])
                 pipe.set('last_block', last_block)
-                pipe.set('last_block_time_seconds', int((last_block_time - datetime.utcfromtimestamp(0)).total_seconds()))
+                pipe.set('last_block_period_start', last_block_period_start)
                 pipe.execute()
-                logger.info(f'Last collected block: {last_block}/{last_block_time.strftime("%Y-%m-%dT%H:%M:%S")}')
+                logger.info(f'Last collected block: {last_block}/{last_block_period_start}')
             time.sleep(0.5)
 
     except Exception as e:
