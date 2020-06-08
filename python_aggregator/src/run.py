@@ -69,6 +69,9 @@ if not os.path.exists('/data/dump.rdb'):
         logger.error('Could not initialise database!')
         logger.error(traceback.format_exc())
 
+def timestring(epochsecs):
+    return datetime.fromtimestamp(epochsecs).strftime('%Y-%m-%d %H:%M')
+
 # submit data to contract according to scheduling constants
 def submit_resource_usage():
     try:
@@ -161,41 +164,11 @@ def submit_resource_usage():
 
 # prune redis database, keeping only the last 7 days worth
 def prune_data():
-    try:
-        for key in redis.keys():
-            if not key in ['last_block', 'last_block_time_seconds', 'last_usage_total_sent']:
-                if datetime.strptime(key, '%Y-%m-%d') < datetime.utcnow() - timedelta(days=8):
-                    redis.delete(key)
-                    logger.info(f'Deleted old data from DB: {key}')
-    except Exception as e:
-        logger.info('Could not prune data!')
-        logger.info(traceback.format_exc())
-
-# exports all archived data to a single CSV file at redis/account-usage.csv
-def export_data_to_csv():
-    try:
-        records = []
-        for key in redis.keys():
-            if not key in ['last_block', 'last_block_time_seconds', 'last_usage_total_sent']:
-                accounts = list(set([key[:-12] for key in redis.hkeys(key)]))
-                for account in accounts:
-                    cpu_usage_us = redis.hget(key, f'{account}-cpu-archive')
-                    net_usage_words = redis.hget(key, f'{account}-net-archive')
-                    record = {'date': key, 'account': account, 'cpu_usage_us': cpu_usage_us, 'net_usage_words': net_usage_words}
-                    records.append(record)
-        with open('/data/accounts-usage.csv', 'w', encoding='utf8', newline='') as output_file:
-            fc = csv.DictWriter(output_file, fieldnames=records[0].keys())
-            fc.writeheader()
-            fc.writerows(records)
-        logger.info('Exported DB to CSV!')
-    except Exception as e:
-        logger.info('Could not export data!')
-        logger.info(traceback.format_exc())
+    pass
 
 scheduler = BackgroundScheduler()
 #scheduler.add_job(submit_resource_usage, 'interval', seconds=SUBMISSION_INTERVAL_SECONDS, id='submit_resource_usage')
 #scheduler.add_job(prune_data, 'interval', minutes=60, id='prune_data')
-#scheduler.add_job(export_data_to_csv, 'interval', minutes=15, id='export_data_to_csv')
 #scheduler.start()
 
 def fetch_block_json(b_num):
@@ -245,8 +218,8 @@ def fetch_block_range(block_range):
                                     pass # Action has no auth actor, so will next available in tx
 
                             if actor not in EXCLUDED_ACCOUNTS:
-                                date_account_resource_deltas[(block_period_start, actor, 'cpu')] += tx["cpu_usage_us"]
-                                date_account_resource_deltas[(block_period_start, actor, 'net')] += tx["net_usage_words"]
+                                date_account_resource_deltas[('AGGREGATION_DATA_' + str(block_period_start), actor, 'cpu')] += tx["cpu_usage_us"]
+                                date_account_resource_deltas[('AGGREGATION_DATA_' + str(block_period_start), actor, 'net')] += tx["net_usage_words"]
 
             except Exception as e:
                 logger.error(traceback.format_exc())
@@ -258,9 +231,9 @@ def fetch_block_range(block_range):
         return None, None
 
 def aggregate_period_data(period_start):
-    logger.info(f'Aggregating data for period {period_start}...')
+    logger.info(f'Aggregating data for period {timestring(period_start)}')
 
-    period_accounts = sorted([key[:-12] for key in redis.hkeys(period_start) if key[-12:] == '-cpu-current'])
+    period_accounts = sorted([key[:-12] for key in redis.hkeys('AGGREGATION_DATA_' + str(period_start)) if key[-12:] == '-cpu-current'])
 
     total_cpu_usage_us = 0
     total_net_usage_words = 0
@@ -273,8 +246,8 @@ def aggregate_period_data(period_start):
             accounts = period_accounts[i:i+DATASET_BATCH_SIZE]
             if len(accounts) > 0:
                 for account in accounts:
-                    cpu_usage = int(redis.hget(period_start, f'{account}-cpu-current'))
-                    net_usage = int(redis.hget(period_start, f'{account}-net-current'))
+                    cpu_usage = int(redis.hget('AGGREGATION_DATA_' + str(period_start), f'{account}-cpu-current'))
+                    net_usage = int(redis.hget('AGGREGATION_DATA_' + str(period_start), f'{account}-net-current'))
                     individual_usage_data.append({'a': account, 'u': cpu_usage})
                     individual_usage_hash_string += account + str(cpu_usage)
                     total_cpu_usage_us += cpu_usage
@@ -287,10 +260,26 @@ def aggregate_period_data(period_start):
     total_usage_hash = hashlib.sha256((str(total_cpu_usage_us) + str(total_net_usage_words)).encode("utf8")).hexdigest()
     all_data_hash = hashlib.sha256(''.join(usage_dataset_hashes).encode("utf8")).hexdigest()
 
+    data = {
+        'total_cpu_usage_us': total_cpu_usage_us,
+        'total_net_usage_words': total_net_usage_words,
+        'total_usage_hash': total_usage_hash,
+        'all_data_hash': all_data_hash,
+        'usage_datasets': usage_datasets
+    }
+
+    # temporary debugging
     logger.info('Usage Datasets')
     logger.info(usage_datasets)
-    logger.info(usage_dataset_hashes)
+#    logger.info(usage_dataset_hashes)
     logger.info(f'Total CPU: {total_cpu_usage_us}, Total NET: {total_net_usage_words}, Totals Hash: {total_usage_hash}, All Data hash: {all_data_hash}')
+
+    # remove from AGGREGATION_DATA and add to SUBMISSION_DATA
+    p = redis.pipeline()
+    p.set('SUBMISSION_DATA_' + str(period_start), json.dumps(data))
+    for account in period_accounts:
+        p.delete('AGGREGATION_DATA_' + str(period_start))
+    p.execute()
 
 
 while KEEP_RUNNING:
@@ -329,7 +318,7 @@ while KEEP_RUNNING:
                 redis_last_block_period_start = redis.get('last_block_period_start')
                 if redis_last_block_period_start:
                     if last_block_period_start > int(redis_last_block_period_start):
-                        aggregate_period_data(redis_last_block_period_start)
+                        aggregate_period_data(int(redis_last_block_period_start))
 
                 # add resource usage to redis in atomic transaction
                 pipe = redis.pipeline()
@@ -339,7 +328,7 @@ while KEEP_RUNNING:
                 pipe.set('last_block', last_block)
                 pipe.set('last_block_period_start', last_block_period_start)
                 pipe.execute()
-                logger.info(f'Last collected block: {last_block}/{last_block_period_start}')
+                logger.info(f'Collected Block: {last_block} / Aggregation Period: {timestring(last_block_period_start)}')
             time.sleep(0.5)
 
     except Exception as e:
