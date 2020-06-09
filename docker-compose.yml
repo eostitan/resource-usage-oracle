@@ -2,16 +2,29 @@ version: '3.3'
 
 services:
 
-  # collects block_log data and saves it to redis
+  # collects block_log data, aggregates it, and saves it to redis
   python_aggregator:
     restart: always
-    build: ./python_aggregator
+    build: ./python
     volumes:
-      - ./python_aggregator:/usr/src/app
+      - ./python:/usr/src/app
       - "./redis:/data"
     env_file:
       - ./config.env
-    command: ["python", "src/run.py"]
+    command: ["python", "src/aggregator.py"]
+    depends_on:
+      - redis
+
+  # sends aggregated data from redis to the eosjs_server for pushing to API node
+  python_submitter:
+    restart: always
+    build: ./python
+    volumes:
+      - ./python:/usr/src/app
+      - "./redis:/data"
+    env_file:
+      - ./config.env
+    command: ["python", "src/submitter.py"]
     depends_on:
       - redis
 
@@ -30,8 +43,17 @@ services:
 
   # stores all usage data
   redis:
+    container_name: resource_usage_oracle_redis
     restart: always
     image: "redis"
     volumes:
       - "./redis:/data"
     entrypoint: ["redis-server", "--save", "300", "1"]
+
+  redis-admin:
+    restart: always
+    image: rediscommander/redis-commander
+    environment:
+      - REDIS_HOSTS=local:resource_usage_oracle_redis:6379
+    ports:
+      - "8081:8081"

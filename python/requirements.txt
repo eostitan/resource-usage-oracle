@@ -1,3 +1,2 @@
 redis==3.3.6
-apscheduler==3.5.3
 requests==2.20.0

@@ -1,4 +1,3 @@
-import csv
 import logging
 import traceback
 import json
@@ -8,19 +7,12 @@ import signal
 import hashlib
 from collections import Counter
 from datetime import datetime, timedelta, date
-import pytz
 from concurrent.futures import ThreadPoolExecutor
 import requests
 import redis
-from apscheduler.schedulers.background import BackgroundScheduler
 
 # get environment variables
 BLOCKS_API_NODE = os.getenv('EOSIO_BLOCKS_API_NODE', '')
-PUSH_API_NODE = os.getenv('EOSIO_PUSH_API_NODE', '')
-CONTRACT_ACCOUNT = os.getenv('CONTRACT_ACCOUNT', '')
-CONTRACT_ACTION = os.getenv('CONTRACT_ACTION', '')
-SUBMISSION_ACCOUNT = os.getenv('SUBMISSION_ACCOUNT', '')
-SUBMISSION_PERMISSION = os.getenv('SUBMISSION_PERMISSION', '')
 EMPTY_DB_START_BLOCK = os.getenv('EMPTY_DB_START_BLOCK', '')
 EXCLUDED_ACCOUNTS = os.getenv('EXCLUDED_ACCOUNTS','').split(',')
 DATA_PERIOD_SECONDS = int(os.getenv('DATA_PERIOD_SECONDS', 24*3600))
@@ -69,107 +61,8 @@ if not os.path.exists('/data/dump.rdb'):
         logger.error('Could not initialise database!')
         logger.error(traceback.format_exc())
 
-def timestring(epochsecs):
+def seconds_to_time_string(epochsecs):
     return datetime.fromtimestamp(epochsecs).strftime('%Y-%m-%d %H:%M')
-
-# submit data to contract according to scheduling constants
-def submit_resource_usage():
-    try:
-        response = {}
-        t = datetime.utcnow()
-        current_date_start = datetime(t.year, t.month, t.day, tzinfo=None)
-        last_block_time = datetime.utcfromtimestamp(int(redis.get('last_block_time_seconds')))
-        previous_date_start = current_date_start - timedelta(days=1)
-        previous_date_string = previous_date_start.strftime("%Y-%m-%d")
-        previous_date_accounts = [key[:-12] for key in redis.hkeys(previous_date_string) if key[-12:] == '-cpu-current']
-
-        if last_block_time >= current_date_start:
-            current_date_string = current_date_start.strftime("%Y-%m-%d")
-            current_date_accounts = [key[:-12] for key in redis.hkeys(current_date_string) if key[-12:] == '-cpu-current']
-            logger.info(f'Collating todays records... {len(current_date_accounts)} accounts so far.')
-
-            if len(previous_date_accounts) > 0:
-
-                # if totals for previous date haven't been sent, calculate and send them now
-                if redis.get('last_usage_total_sent') != previous_date_string:
-                    total_cpu_usage_us = 0
-                    total_net_usage_words = 0
-                    for account in previous_date_accounts:
-                        total_cpu_usage_us += int(redis.hget(previous_date_string, f'{account}-cpu-current'))
-                        total_net_usage_words += int(redis.hget(previous_date_string, f'{account}-net-current'))
-                    action = {
-                        "account": CONTRACT_ACCOUNT,
-                        "name": "settotalusg",
-                        "authorization": [{
-                            "actor": SUBMISSION_ACCOUNT,
-                            "permission": SUBMISSION_PERMISSION,
-                        }],
-                        "data": {"source": SUBMISSION_ACCOUNT,
-                            "total_cpu_us": total_cpu_usage_us,
-                            "total_net_words": total_net_usage_words,
-                            "period_start": previous_date_start.strftime('%Y-%m-%dT%H:%M:%S')
-                        }
-                    }
-                    logger.info(f'Submitting resource usage totals for {previous_date_string}...')
-                    tx = {'actions': [action]}
-                    logger.info(tx)
-                    response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=10).json()
-                    logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
-                    redis.set('last_usage_total_sent', previous_date_string)
-                    time.sleep(5)
-
-                # send ubsubmitted data
-                actions = []
-                for account in previous_date_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
-                    cpu_usage_us = redis.hget(previous_date_string, f'{account}-cpu-current')
-                    action = {
-                        "account": CONTRACT_ACCOUNT,
-                        "name": "addactusg",
-                        "authorization": [{
-                            "actor": SUBMISSION_ACCOUNT,
-                            "permission": SUBMISSION_PERMISSION,
-                        }],
-                        "data": {"source": SUBMISSION_ACCOUNT,
-                            "dataset_id": 1,
-                            "data": [
-                                {"a": account, "u": cpu_usage_us}
-                            ],
-                            "period_start": previous_date_start.strftime('%Y-%m-%dT%H:%M:%S')
-                        }
-                    }
-                    actions.append(action)
-
-                logger.info(f'Submitting resource usage stats for {previous_date_string}...')
-                tx = {'actions': actions}
-                logger.info(tx)
-                response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=10).json()
-                logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
-
-                # remove data from -current once successfully sent
-                for account in previous_date_accounts[:MAX_ACCOUNTS_PER_SUBMISSION]:
-                    redis.hdel(previous_date_string, f'{account}-cpu-current')
-                    redis.hdel(previous_date_string, f'{account}-net-current')
-
-                # todo - handle if tx doesn't get included in immutable block?
-
-        # if last block was yesterday, then aggregation is not finished, so don't submit
-        if last_block_time < current_date_start:
-            if len(previous_date_accounts) > 0:
-                logger.info(f'Collating yesterdays records... {len(previous_date_accounts)} accounts so far.')
-
-
-    except Exception as e:
-        logger.error('Could not submit tx!')
-        logger.error(response.get('error', traceback.format_exc()))
-
-# prune redis database, keeping only the last 7 days worth
-def prune_data():
-    pass
-
-scheduler = BackgroundScheduler()
-#scheduler.add_job(submit_resource_usage, 'interval', seconds=SUBMISSION_INTERVAL_SECONDS, id='submit_resource_usage')
-#scheduler.add_job(prune_data, 'interval', minutes=60, id='prune_data')
-#scheduler.start()
 
 def fetch_block_json(b_num):
     block_info = requests.post(BLOCKS_API_NODE + '/v1/chain/get_block', json={'block_num_or_id': b_num}, timeout=10).json()
@@ -231,7 +124,7 @@ def fetch_block_range(block_range):
         return None, None
 
 def aggregate_period_data(period_start):
-    logger.info(f'Aggregating data for period {timestring(period_start)}')
+    logger.info(f'Aggregating data for period {seconds_to_time_string(period_start)}')
 
     period_accounts = sorted([key[:-12] for key in redis.hkeys('AGGREGATION_DATA_' + str(period_start)) if key[-12:] == '-cpu-current'])
 
@@ -328,7 +221,7 @@ while KEEP_RUNNING:
                 pipe.set('last_block', last_block)
                 pipe.set('last_block_period_start', last_block_period_start)
                 pipe.execute()
-                logger.info(f'Collected Block: {last_block} / Aggregation Period: {timestring(last_block_period_start)}')
+                logger.info(f'Collected Block: {last_block} / Aggregation Period: {seconds_to_time_string(last_block_period_start)}')
             time.sleep(0.5)
 
     except Exception as e:
