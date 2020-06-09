@@ -56,6 +56,7 @@ if not os.path.exists('/data/dump.rdb'):
 #            start_block_num = start_block_num - blocks_since_midnight - (2 * 3600 * 24) - 120
             start_block_num = start_block_num - blocks_since_midnight - (2 * 3600 * 24) + 25000
         redis.set('last_block', start_block_num)
+        redis.save()
         logger.info('Database Initialised!')
     except:
         logger.error('Could not initialise database!')
