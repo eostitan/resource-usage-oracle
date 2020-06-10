@@ -127,7 +127,7 @@ def fetch_block_range(block_range):
 def aggregate_period_data(period_start):
     logger.info(f'Aggregating data for period {seconds_to_time_string(period_start)}')
 
-    period_accounts = sorted([key[:-12] for key in redis.hkeys('AGGREGATION_DATA_' + str(period_start)) if key[-12:] == '-cpu-current'])
+    period_accounts = sorted([key[:-4] for key in redis.hkeys('AGGREGATION_DATA_' + str(period_start)) if key[-4:] == '-cpu'])
 
     total_cpu_usage_us = 0
     total_net_usage_words = 0
@@ -140,8 +140,8 @@ def aggregate_period_data(period_start):
             accounts = period_accounts[i:i+DATASET_BATCH_SIZE]
             if len(accounts) > 0:
                 for account in accounts:
-                    cpu_usage = int(redis.hget('AGGREGATION_DATA_' + str(period_start), f'{account}-cpu-current'))
-                    net_usage = int(redis.hget('AGGREGATION_DATA_' + str(period_start), f'{account}-net-current'))
+                    cpu_usage = int(redis.hget('AGGREGATION_DATA_' + str(period_start), f'{account}-cpu'))
+                    net_usage = int(redis.hget('AGGREGATION_DATA_' + str(period_start), f'{account}-net'))
                     individual_usage_data.append({'a': account, 'u': cpu_usage})
                     individual_usage_hash_string += account + str(cpu_usage)
                     total_cpu_usage_us += cpu_usage
@@ -217,8 +217,7 @@ while KEEP_RUNNING:
                 # add resource usage to redis in atomic transaction
                 pipe = redis.pipeline()
                 for key in date_account_resource_deltas:
-                    pipe.hincrby(key[0], f'{key[1]}-{key[2]}-current', date_account_resource_deltas[key])
-                    pipe.hincrby(key[0], f'{key[1]}-{key[2]}-archive', date_account_resource_deltas[key])
+                    pipe.hincrby(key[0], f'{key[1]}-{key[2]}', date_account_resource_deltas[key])
                 pipe.set('last_block', last_block)
                 pipe.set('last_block_period_start', last_block_period_start)
                 pipe.execute()
