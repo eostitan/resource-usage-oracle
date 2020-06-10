@@ -25,7 +25,7 @@ SUBMISSION_INTERVAL_SECONDS = 10
 
 # for gracefully handling docker signals
 KEEP_RUNNING = True
-def stop_container():
+def stop_container(*args):
     global KEEP_RUNNING
     KEEP_RUNNING = False
 signal.signal(signal.SIGTERM, stop_container)
