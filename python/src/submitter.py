@@ -68,7 +68,7 @@ while KEEP_RUNNING:
         if data:
             data = json.loads(data)
             dataset_id = get_contract_expected_dataset_id()
-            if dataset_id == 0: # send totals
+            if dataset_id == 0 and state == 'TOTAL_USAGE': # send totals
                 action = {
                     "account": CONTRACT_ACCOUNT,
                     "name": "settotalusg",
@@ -79,8 +79,8 @@ while KEEP_RUNNING:
                     "data": {"source": SUBMISSION_ACCOUNT,
                         "total_cpu_us": data['total_cpu_usage_us'],
                         "total_net_words": data['total_net_usage_words'],
-#                        "total_usage_hash": data['total_usage_hash'],
-#                        "all_data_hash": data['all_data_hash'],
+                        "total_usage_hash": data['total_usage_hash'],
+                        "all_data_hash": data['all_data_hash'],
                         "period_start": datetime.fromtimestamp(period_start_seconds).strftime('%Y-%m-%dT%H:%M:%S')
                     }
                 }
@@ -90,7 +90,7 @@ while KEEP_RUNNING:
                 response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=10).json()
                 logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
 
-            elif dataset_id > 0 and dataset_id < len(data['usage_datasets']): # send individual accounts dataset
+            elif dataset_id > 0 and dataset_id < len(data['usage_datasets']) and state == 'INDIVIDUAL_USAGE': # send individual accounts dataset
                 dataset = data['usage_datasets'][dataset_id]
                 action = {
                     "account": CONTRACT_ACCOUNT,
@@ -113,5 +113,8 @@ while KEEP_RUNNING:
 
             elif dataset_id == len(data['usage_datasets']): # all sent
                 logger.info(f'All data submitted for {seconds_to_time_string(period_start_seconds)}')
+
+            elif state == 'TOTAL_USAGE':
+                logger.info(f'Awaiting inflation transfer for {seconds_to_time_string(period_start_seconds)}')
 
     time.sleep(SUBMISSION_INTERVAL_SECONDS)
