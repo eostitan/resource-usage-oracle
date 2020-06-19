@@ -137,7 +137,8 @@ def aggregate_period_data(period_start):
             usage_dataset_hashes.append(hashlib.sha256(individual_usage_hash_string.encode("utf8")).hexdigest())
 
     total_usage_hash = hashlib.sha256((str(total_cpu_usage_us) + '-' + str(total_net_usage_words)).encode("utf8")).hexdigest()
-    all_data_hash = hashlib.sha256('-'.join(usage_dataset_hashes).encode("utf8")).hexdigest()
+    usage_dataset_hashes = [total_usage_hash] + usage_dataset_hashes
+    all_data_hash = hashlib.sha256(('-'.join(usage_dataset_hashes)).encode("utf8")).hexdigest()
 
     data = {
         'total_cpu_usage_us': total_cpu_usage_us,

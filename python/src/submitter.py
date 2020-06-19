@@ -79,7 +79,6 @@ while KEEP_RUNNING:
                     "data": {"source": SUBMISSION_ACCOUNT,
                         "total_cpu_us": data['total_cpu_usage_us'],
                         "total_net_words": data['total_net_usage_words'],
-                        "total_usage_hash": data['total_usage_hash'],
                         "all_data_hash": data['all_data_hash'],
                         "period_start": datetime.fromtimestamp(period_start_seconds).strftime('%Y-%m-%dT%H:%M:%S')
                     }
