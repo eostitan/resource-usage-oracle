@@ -12,7 +12,7 @@ import requests
 import redis
 
 # app level imports
-from utils import seconds_to_time_string, get_current_data_submission_state, get_expected_dataset_id
+from utils import seconds_to_time_string, get_contract_configuration_state, get_contract_expected_dataset_id
 
 # get environment variables
 PUSH_API_NODE = os.getenv('EOSIO_PUSH_API_NODE', '')
@@ -20,7 +20,6 @@ CONTRACT_ACCOUNT = os.getenv('CONTRACT_ACCOUNT', '')
 CONTRACT_ACTION = os.getenv('CONTRACT_ACTION', '')
 SUBMISSION_ACCOUNT = os.getenv('SUBMISSION_ACCOUNT', '')
 SUBMISSION_PERMISSION = os.getenv('SUBMISSION_PERMISSION', '')
-DATA_PERIOD_SECONDS = int(os.getenv('DATA_PERIOD_SECONDS', 24*3600))
 
 # scheduling constants
 SUBMISSION_INTERVAL_SECONDS = 10
@@ -54,20 +53,21 @@ while KEEP_RUNNING:
 
     # prune old redis data
     for key in redis.keys('SUBMISSION_DATA_*'):
-        period_start_seconds = int(key[16:])
-        if current_time_seconds > period_start_seconds + (3600 *24 * 7): # more than seven days ago
+        pss = int(key[16:])
+        if current_time_seconds > pss + (3600 *24 * 28): # more than 28 days ago
             redis.delete(key)
 
     # get current data submission period from contract
-    period_start_seconds, state = get_current_data_submission_state()
+    period_start_seconds, _, _, state = get_contract_configuration_state()
     if period_start_seconds:
+        period_start_seconds = int(period_start_seconds)
         logger.info(f'Current submission period is {seconds_to_time_string(period_start_seconds)}')
 
+        # submit data
         data = redis.get('SUBMISSION_DATA_' + str(period_start_seconds))
         if data:
-            data = json.loads(data.decode('utf-8'))
-            logger.info(data)
-            dataset_id = get_expected_dataset_id()
+            data = json.loads(data)
+            dataset_id = get_contract_expected_dataset_id()
             if dataset_id == 0: # send totals
                 action = {
                     "account": CONTRACT_ACCOUNT,
@@ -79,9 +79,9 @@ while KEEP_RUNNING:
                     "data": {"source": SUBMISSION_ACCOUNT,
                         "total_cpu_us": data['total_cpu_usage_us'],
                         "total_net_words": data['total_net_usage_words'],
-                        "total_usage_hash": data['total_usage_hash'],
-                        "all_data_hash": data['all_data_hash'],
-                        "period_start": previous_date_start.strftime('%Y-%m-%dT%H:%M:%S')
+#                        "total_usage_hash": data['total_usage_hash'],
+#                        "all_data_hash": data['all_data_hash'],
+                        "period_start": datetime.fromtimestamp(period_start_seconds).strftime('%Y-%m-%dT%H:%M:%S')
                     }
                 }
                 logger.info(f'Submitting resource usage totals for {seconds_to_time_string(period_start_seconds)}...')
@@ -90,7 +90,7 @@ while KEEP_RUNNING:
                 response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=10).json()
                 logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
 
-            elif dataset_id > 0: # send individual accounts dataset
+            elif dataset_id > 0 and dataset_id < len(data['usage_datasets']): # send individual accounts dataset
                 dataset = data['usage_datasets'][dataset_id]
                 action = {
                     "account": CONTRACT_ACCOUNT,
@@ -102,14 +102,16 @@ while KEEP_RUNNING:
                     "data": {"source": SUBMISSION_ACCOUNT,
                         "dataset_id": dataset_id,
                         "dataset": dataset,
-                        "period_start": previous_date_start.strftime('%Y-%m-%dT%H:%M:%S')
+                        "period_start": datetime.fromtimestamp(period_start_seconds).strftime('%Y-%m-%dT%H:%M:%S')
                     }
                 }
                 logger.info(f'Submitting accounts resource usage for {seconds_to_time_string(period_start_seconds)}...')
                 tx = {'actions': [action]}
                 logger.info(tx)
-                response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=10).json()
+                response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=60).json()
                 logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
 
+            elif dataset_id == len(data['usage_datasets']): # all sent
+                logger.info(f'All data submitted for {seconds_to_time_string(period_start_seconds)}')
 
     time.sleep(SUBMISSION_INTERVAL_SECONDS)

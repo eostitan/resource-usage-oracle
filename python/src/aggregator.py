@@ -15,7 +15,7 @@ import requests
 import redis
 
 # app level imports
-from utils import seconds_to_time_string
+from utils import seconds_to_time_string, get_contract_configuration_state, seconds_to_block_number
 
 # get environment variables
 PUSH_API_NODE = os.getenv('EOSIO_PUSH_API_NODE', '')
@@ -49,28 +49,6 @@ logger.addHandler(handler)
 # establish connection to redis server
 redis = redis.StrictRedis(host='redis', port=6379, db=0, decode_responses=True)
 
-# if no redis dump file is present, determine starting block number and initialise db
-if not os.path.exists('/data/dump.rdb'):
-    try:
-        if EMPTY_DB_START_BLOCK:
-            start_block_num = EMPTY_DB_START_BLOCK
-        else:
-            # estimate block num a couple of minutes before the start of yesterday
-            start_block_num = requests.get(f'{BLOCKS_API_NODE}/v1/chain/get_info', timeout=5).json()["last_irreversible_block_num"]
-            logger.info(start_block_num)
-            now = datetime.utcnow()
-            blocks_since_midnight = int((now - now.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds() * 2)
-#            start_block_num = start_block_num - blocks_since_midnight - (2 * 3600 * 24) - 120
-            start_block_num = start_block_num - blocks_since_midnight - (2 * 3600 * 24) + 25000
-        redis.set('last_block', start_block_num)
-        redis.save()
-        logger.info('Database Initialised!')
-    except:
-        logger.error('Could not initialise database!')
-        logger.error(traceback.format_exc())
-
-def seconds_to_time_string(epochsecs):
-    return datetime.fromtimestamp(epochsecs).strftime('%Y-%m-%d %H:%M')
 
 def fetch_block_json(b_num):
     block_info = requests.post(BLOCKS_API_NODE + '/v1/chain/get_block', json={'block_num_or_id': b_num}, timeout=10).json()
@@ -170,8 +148,8 @@ def aggregate_period_data(period_start):
     }
 
     # temporary debugging
-    logger.info('Usage Datasets')
-    logger.info(usage_datasets)
+#    logger.info('Usage Datasets')
+#    logger.info(usage_datasets)
 #    logger.info(usage_dataset_hashes)
     logger.info(f'Total CPU: {total_cpu_usage_us}, Total NET: {total_net_usage_words}, Totals Hash: {total_usage_hash}, All Data hash: {all_data_hash}')
 
@@ -181,6 +159,37 @@ def aggregate_period_data(period_start):
     for account in period_accounts:
         p.delete('AGGREGATION_DATA_' + str(period_start))
     p.execute()
+
+
+
+# if no redis dump file is present, determine starting block number and initialise db
+if os.path.exists('/data/dump.rdb'):
+    DATA_PERIOD_SECONDS = int(redis.get('DATA_PERIOD_SECONDS'))
+    DATASET_BATCH_SIZE = int(redis.get('DATASET_BATCH_SIZE'))
+
+    # get contracts configuration for checking
+    pss, dps, dbs, _ = get_contract_configuration_state()
+
+    # compare and raise error if redis settings different from contract values
+    if (dps != DATA_PERIOD_SECONDS) or (dbs != DATASET_BATCH_SIZE):
+        logger.error('Cannot continue. Contract config does not match existing data, please clear redis data and restart.')
+
+else:
+    # get contracts configuration
+    period_start_seconds, DATA_PERIOD_SECONDS, DATASET_BATCH_SIZE, _ = get_contract_configuration_state()
+    redis.set('DATA_PERIOD_SECONDS', DATA_PERIOD_SECONDS)
+    redis.set('DATASET_BATCH_SIZE', DATASET_BATCH_SIZE)
+
+    try:
+        start_block_number = seconds_to_block_number(period_start_seconds)
+        logger.info(f'Starting at block {start_block_number}')
+        redis.set('last_block', start_block_number)
+        redis.save()
+        logger.info('Database Initialised!')
+    except:
+        logger.error('Could not initialise database!')
+        logger.error(traceback.format_exc())
+        KEEP_RUNNING = False
 
 
 while KEEP_RUNNING:
