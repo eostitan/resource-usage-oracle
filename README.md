@@ -1,12 +1,12 @@
 ## EOSIO Resource Usage Oracle
 
-Python app which collates CPU/NET usage for all accounts interacting with the blockchain each day. It gathers from the get_blocks nodeos API, and submits to an EOSIO oracle contract after midnight once the previous days data has been received.
+Python app which collates CPU/NET usage for all accounts interacting with the blockchain each day. It gathers from the get_blocks nodeos API in the `aggregator` process, and submits to an EOSIO oracle contract after the period has ended in the `submitter` process.
+
+It stays aware of the state of the contract and sends the total system CPU/NET usage for the period, and then the individual account CPU usage totals in several actions as determined by the contract. It resubmits any data that doesn't make it into an irreversible block.
 
 Data is stored in Redis which is persisted to file every 5 minutes.
 
-All data is pruned to the most recent 7 days every hour.
-
-A CSV file of the all data is exported to redis/accounts-usage.csv every 15 minutes.
+All data is pruned to the most recent 28 days worth.
 
 Data submission uses a small node.js Express http server, as I'm not aware of an efficient Python library for pushing transactions.
 
@@ -17,15 +17,17 @@ Data submission uses a small node.js Express http server, as I'm not aware of an
 3) `docker-compose up -d`
 
 ### To monitor log file
-`tail -f python_aggregator/debug.log`
+`tail -f python/debug.log`
 
 ...or for just errors...
 
-`tail -f python_aggregator/debug.log | grep 'ERROR'`
+`tail -f python/debug.log | grep 'ERROR'`
 
 ### To delete retained redis data
 1) `docker-compose down`
 2) `rm redis/dump.rdb`
 
-### LIMITATIONS
-- Data submission is on a best efforts basis, confirmed only at the API endpoint. There are currently no checks to ensure it was added to an immutable block.
+### TODO
+- Call `nextperiod` action if necessary to ensure contract is waiting for the correct periods data
+- Ensure auto block collection starts before contract period start (to avoid delivering incorrect data for first period)
+- Prevent contract reconfiguration from requiring existing data to be deleted manually
