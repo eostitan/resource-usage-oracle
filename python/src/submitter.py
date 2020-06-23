@@ -58,7 +58,26 @@ while KEEP_RUNNING:
             redis.delete(key)
 
     # get current data submission period from contract
-    period_start_seconds, _, _, state = get_contract_configuration_state()
+    period_start_seconds, period_seconds, _, state = get_contract_configuration_state()
+
+    # if collection interval for contract period start has passed, call nextperiod to advance it
+    if datetime.now().timestamp() > period_start_seconds + (period_seconds * 2):
+        action = {
+            "account": CONTRACT_ACCOUNT,
+            "name": "nextperiod",
+            "authorization": [{
+                "actor": SUBMISSION_ACCOUNT,
+                "permission": SUBMISSION_PERMISSION,
+            }],
+            "data": {}
+        }
+        logger.info(f'Calling nextperiod contract action, to advance collection period...')
+        tx = {'actions': [action]}
+        logger.info(tx)
+        response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=10).json()
+        logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
+        continue # skip next parts in case contract is still before appropriate collection period
+
     if period_start_seconds:
         period_start_seconds = int(period_start_seconds)
         logger.info(f'Current submission period is {seconds_to_time_string(period_start_seconds)}')

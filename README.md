@@ -28,6 +28,4 @@ Data submission uses a small node.js Express http server, as I'm not aware of an
 2) `rm redis/dump.rdb`
 
 ### TODO
-- Call `nextperiod` action if necessary to ensure contract is waiting for the correct periods data
-- Ensure auto block collection starts before contract period start (to avoid delivering incorrect data for first period)
 - Prevent contract reconfiguration from requiring existing data to be deleted manually

@@ -71,11 +71,11 @@ def get_contract_expected_dataset_id():
         return -1
 
 def seconds_to_block_number(epochsecs):
-    '''Given time in epoch seconds, returns approximate block'''
+    '''
+        Given time in epoch seconds, returns an appropriate starting block a couple of minutes before that. 
+        Assuming no more than 2 blocks/sec avg, it is sure to be prior to target block.
+    '''
     current_time_seconds = datetime.now().timestamp()
-    # estimate block num a couple of minutes before epochsecs
     lib_block_num = requests.get(f'{BLOCKS_API_NODE}/v1/chain/get_info', timeout=5).json()["last_irreversible_block_num"]
     target_block_num = lib_block_num - ((current_time_seconds - epochsecs) * 2)
-    # TODO - check block is before target time, to ensure complete data
-
     return int(target_block_num)
