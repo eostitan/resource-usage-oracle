@@ -10,6 +10,8 @@ All data is pruned to the most recent 28 days worth.
 
 Data submission uses a small node.js Express http server, as I'm not aware of an efficient Python library for pushing transactions.
 
+![Data Flow Diagram](data-flow.png)
+
 ### How to run
 
 1) Install docker and docker-compose
