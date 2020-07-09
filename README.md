@@ -32,7 +32,7 @@ Data submission uses a small node.js Express http server.
 1) `docker-compose -p oracle1 down`
 2) `rm redis/dump.rdb`
 
-### Running multiple oracle instances on one machine
+### Running multiple oracle instances on one machine (for testing)
 1) Copy whole repo to a new directory for each oracle
 2) Update config.env in these directories to reflect appropriate submission credentials for each oracle
 3) Using the form `docker-compose -p oracle2 up -d` forces docker to prepend the oracle name so container names are appropriate
