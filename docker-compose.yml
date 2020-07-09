@@ -6,6 +6,7 @@ services:
   python_aggregator:
     restart: always
     build: ./python
+    image: eostitan/ux-resource-usage-oracle-python:1
     volumes:
       - ./python:/usr/src/app
       - "./redis:/data"
@@ -19,6 +20,7 @@ services:
   python_submitter:
     restart: always
     build: ./python
+    image: eostitan/ux-resource-usage-oracle-python:1
     volumes:
       - ./python:/usr/src/app
       - "./redis:/data"
@@ -27,12 +29,13 @@ services:
     command: ["python", "src/submitter.py"]
     depends_on:
       - redis
+      - eosjs_server
 
   # provides http method to push transactions to API node
   eosjs_server:
-    container_name: eosjsserver
     restart: always
     build: ./eosjs_server
+    image: eostitan/ux-resource-usage-oracle-eosjs-server:1
     volumes:
       - ./eosjs_server:/home/app
       - /home/app/node_modules
@@ -43,17 +46,16 @@ services:
 
   # stores all usage data
   redis:
-    container_name: resource_usage_oracle_redis
     restart: always
     image: "redis"
     volumes:
       - "./redis:/data"
     entrypoint: ["redis-server", "--save", "300", "1"]
 
-  redis-admin:
-    restart: always
-    image: rediscommander/redis-commander
-    environment:
-      - REDIS_HOSTS=local:resource_usage_oracle_redis:6379
-    ports:
-      - "8081:8081"
+#  redis-admin:
+#    restart: always
+#    image: rediscommander/redis-commander
+#    environment:
+#      - REDIS_HOSTS=local:resource_usage_oracle_redis:6379
+#    ports:
+#      - "8081:8081"

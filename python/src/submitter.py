@@ -74,7 +74,7 @@ while KEEP_RUNNING:
         logger.info(f'Calling nextperiod contract action, to advance collection period...')
         tx = {'actions': [action]}
         logger.info(tx)
-        response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=10).json()
+        response = requests.post('http://eosjs_server:3000/push_transaction', json=tx, timeout=10).json()
         logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
         continue # skip next parts in case contract is still before appropriate collection period
 
@@ -105,7 +105,7 @@ while KEEP_RUNNING:
                 logger.info(f'Submitting resource usage totals for {seconds_to_time_string(period_start_seconds)}...')
                 tx = {'actions': [action]}
                 logger.info(tx)
-                response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=10).json()
+                response = requests.post('http://eosjs_server:3000/push_transaction', json=tx, timeout=10).json()
                 logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
 
             elif dataset_id > 0 and dataset_id < len(data['usage_datasets']) and state == 'INDIVIDUAL_USAGE': # send individual accounts dataset
@@ -126,7 +126,7 @@ while KEEP_RUNNING:
                 logger.info(f'Submitting accounts resource usage for {seconds_to_time_string(period_start_seconds)}...')
                 tx = {'actions': [action]}
                 logger.info(tx)
-                response = requests.post('http://eosjsserver:3000/push_transaction', json=tx, timeout=60).json()
+                response = requests.post('http://eosjs_server:3000/push_transaction', json=tx, timeout=60).json()
                 logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
 
             elif dataset_id == len(data['usage_datasets']): # all sent
