@@ -8,7 +8,7 @@ Data is stored in Redis which is persisted to file every 5 minutes.
 
 All data is pruned to the most recent 28 days worth.
 
-Data submission uses a small node.js Express http server, as I'm not aware of an efficient Python library for pushing transactions.
+Data submission uses a small node.js Express http server.
 
 ![Data Flow Diagram](data-flow.png)
 
@@ -16,7 +16,10 @@ Data submission uses a small node.js Express http server, as I'm not aware of an
 
 1) Install docker and docker-compose
 2) Create the config.env file like the template, and modify as required
-3) `docker-compose up -d`
+3) `docker-compose -p oracle1 up -d`
+
+### How to stop
+`docker-compose -p oracle1 down`
 
 ### To monitor log file
 `tail -f python/debug.log`
@@ -26,8 +29,14 @@ Data submission uses a small node.js Express http server, as I'm not aware of an
 `tail -f python/debug.log | grep 'ERROR'`
 
 ### To delete retained redis data
-1) `docker-compose down`
+1) `docker-compose -p oracle1 down`
 2) `rm redis/dump.rdb`
 
-### TODO
+### Running multiple oracle instances on one machine
+1) Copy whole repo to a new directory for each oracle
+2) Update config.env in these directories to reflect appropriate submission credentials for each oracle
+3) Using the form `docker-compose -p oracle2 up -d` forces docker to prepend the oracle name so container names are appropriate
+
+### Low priority TODOs
 - Prevent contract reconfiguration from requiring existing data to be deleted manually
+- Replace node.js express server with https://github.com/EOSArgentina/ueosio library
