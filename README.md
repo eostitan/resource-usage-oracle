@@ -16,26 +16,22 @@ Data submission uses a small node.js Express http server.
 
 1) Install docker and docker-compose
 2) Create the config.env file like the template, and modify as required
-3) `docker-compose -p oracle1 up -d`
+3) `docker-compose up -d`
 
 ### How to stop
-`docker-compose -p oracle1 down`
+`docker-compose down`
 
 ### To monitor log file
 `tail -f python/debug.log`
 
-...or for just errors...
-
-`tail -f python/debug.log | grep 'ERROR'`
-
 ### To delete retained redis data
-1) `docker-compose -p oracle1 down`
+1) `docker-compose down`
 2) `rm redis/dump.rdb`
 
 ### Running multiple oracle instances on one machine (for testing)
 1) Copy whole repo to a new directory for each oracle
 2) Update config.env in these directories to reflect appropriate submission credentials for each oracle
-3) Using the form `docker-compose -p oracle2 up -d` forces docker to prepend the oracle name so container names are appropriate
+3) `docker-compose up -d` in each directory
 
 ### Low priority TODOs
 - Prevent contract reconfiguration from requiring existing data to be deleted manually
