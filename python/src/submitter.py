@@ -51,17 +51,20 @@ while KEEP_RUNNING and not os.path.exists('/data/dump.rdb'):
 while KEEP_RUNNING:
     current_time_seconds = datetime.now().timestamp()
 
-    # prune old redis data
-    for key in redis.keys('SUBMISSION_DATA_*'):
+    # prune old redis data and get most recent submission data available
+    most_recent_submission_data_seconds = 0
+    for key in sorted(redis.keys('SUBMISSION_DATA_*')):
         pss = int(key[16:])
         if current_time_seconds > pss + (3600 *24 * 28): # more than 28 days ago
             redis.delete(key)
+        most_recent_submission_data_seconds = pss
+    logger.info(f'Most recent data available to submit: {seconds_to_time_string(most_recent_submission_data_seconds)}')
 
     # get current data submission period from contract
     period_start_seconds, period_seconds, _, state = get_contract_configuration_state()
 
     # if collection interval for contract period start has passed, call nextperiod to advance it
-    if datetime.now().timestamp() > period_start_seconds + (period_seconds * 2):
+    if most_recent_submission_data_seconds > period_start_seconds: # + (period_seconds * 2):
         action = {
             "account": CONTRACT_ACCOUNT,
             "name": "nextperiod",
@@ -71,12 +74,18 @@ while KEEP_RUNNING:
             }],
             "data": {}
         }
-        logger.info(f'Calling nextperiod contract action, to advance collection period...')
+        logger.info(f'Calling nextperiod contract action, to advance submission period...')
         tx = {'actions': [action]}
         logger.info(tx)
         response = requests.post('http://eosjs_server:3000/push_transaction', json=tx, timeout=10).json()
-        logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
-        continue # skip next parts in case contract is still before appropriate collection period
+        if 'transaction_id' in response:
+            logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
+            time.sleep(1)
+            continue # if advanced the period, then continue to next perioo before submitting data
+        else:
+            logger.info(f'Could not advance submission period...')
+            if 'error' in response:
+                logger.info(response['error'])
 
     if period_start_seconds:
         period_start_seconds = int(period_start_seconds)
@@ -106,7 +115,12 @@ while KEEP_RUNNING:
                 tx = {'actions': [action]}
                 logger.info(tx)
                 response = requests.post('http://eosjs_server:3000/push_transaction', json=tx, timeout=10).json()
-                logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
+                if 'transaction_id' in response:
+                    logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
+                else:
+                    logger.info(f'Transaction could not be submitted!')
+                    if 'error' in response:
+                        logger.info(response['error'])
 
             elif dataset_id > 0 and dataset_id < len(data['usage_datasets']) and state == 'INDIVIDUAL_USAGE': # send individual accounts dataset
                 dataset = data['usage_datasets'][dataset_id]
@@ -127,7 +141,12 @@ while KEEP_RUNNING:
                 tx = {'actions': [action]}
                 logger.info(tx)
                 response = requests.post('http://eosjs_server:3000/push_transaction', json=tx, timeout=60).json()
-                logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
+                if 'transaction_id' in response:
+                    logger.info(f'Transaction {response["transaction_id"]} successfully submitted!')
+                else:
+                    logger.info(f'Transaction could not be submitted!')
+                    if 'error' in response:
+                        logger.info(response['error'])
 
             elif dataset_id == len(data['usage_datasets']): # all sent
                 logger.info(f'All data submitted for {seconds_to_time_string(period_start_seconds)}')
