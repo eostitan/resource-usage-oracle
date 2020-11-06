@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
-    "node-fetch": "2.6.0",
+    "node-fetch": "2.6.1",
     "utils": "0.3.1",
     "eosjs": "^20.0.0",
     "express": "3.x"
