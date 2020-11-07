@@ -16,6 +16,19 @@ services:
     depends_on:
       - redis
 
+  # aggregates test data, and saves it to redis
+  python_aggregate_test_data:
+    build: ./python
+    image: eostitan/ux-resource-usage-oracle-python:1
+    volumes:
+      - ./python:/usr/src/app
+      - "./redis:/data"
+    env_file:
+      - ./config.env
+    command: ["python", "src/aggregate_test_data.py"]
+    depends_on:
+      - redis
+
   # sends aggregated data from redis to the eosjs_server for pushing to API node
   python_submitter:
     restart: always
