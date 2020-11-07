@@ -43,9 +43,9 @@ logger.addHandler(handler)
 redis = redis.StrictRedis(host='redis', port=6379, db=0, decode_responses=True)
 
 def aggregate_period_test_data(period_start):
-    logger.info(f'Aggregating TEST data for period {seconds_to_time_string(period_start)}')
+    logger.info(f'Creating test data for period {seconds_to_time_string(period_start)}')
 
-    period_accounts = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'k']
+    period_accounts = ['bp1', 'bp2', 'bp3', 'bp4', 'bp5', 'bpa', 'bpb', 'bpc', 'bpd', 'bpe']
 
     total_cpu_usage_us = 0
     total_net_usage_words = 0
