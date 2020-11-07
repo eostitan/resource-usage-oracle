@@ -18,18 +18,14 @@ import redis
 from utils import seconds_to_time_string, get_contract_configuration_state, seconds_to_block_number
 
 # get environment variables
-PUSH_API_NODE = os.getenv('EOSIO_PUSH_API_NODE', '')
 BLOCKS_API_NODE = os.getenv('EOSIO_BLOCKS_API_NODE', '')
 EMPTY_DB_START_BLOCK = os.getenv('EMPTY_DB_START_BLOCK', '')
 EXCLUDED_ACCOUNTS = os.getenv('EXCLUDED_ACCOUNTS','').split(',')
-DATA_PERIOD_SECONDS = int(os.getenv('DATA_PERIOD_SECONDS', 24*3600))
-DATASET_BATCH_SIZE =  int(os.getenv('DATASET_BATCH_SIZE', 100))
-TEST_USAGE_DATA =  os.getenv('TEST_USAGE_DATA', 'False') == 'True'
+BLOCK_ACQUISITION_THREADS = int(os.getenv('BLOCK_ACQUISITION_THREADS', 1))
+TEST_USAGE_DATA = os.getenv('TEST_USAGE_DATA', 'False') == 'True'
 
-# block collection and scheduling constants
-BLOCK_ACQUISITION_THREADS = 20
-MAX_ACCOUNTS_PER_SUBMISSION = 10
-SUBMISSION_INTERVAL_SECONDS = 10
+if TEST_USAGE_DATA:
+    quit()
 
 # for gracefully handling docker signals
 KEEP_RUNNING = True
@@ -162,54 +158,6 @@ def aggregate_period_data(period_start):
         p.delete('AGGREGATION_DATA_' + str(period_start))
     p.execute()
 
-def aggregate_period_test_data(period_start):
-    logger.info(f'Aggregating TEST data for period {seconds_to_time_string(period_start)}')
-
-    period_accounts = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'k']
-
-    total_cpu_usage_us = 0
-    total_net_usage_words = 0
-    usage_datasets = [[]]
-    usage_dataset_hashes = []
-    if len(period_accounts) > 0:
-        for i in range(0, len(period_accounts), DATASET_BATCH_SIZE):
-            individual_usage_data = []
-            individual_usage_hash_string = ''
-            accounts = period_accounts[i:i+DATASET_BATCH_SIZE]
-            if len(accounts) > 0:
-                for account in accounts:
-                    cpu_usage = 540000000 # for 50% utilisation
-                    net_usage = 47500000 # for ~50% utilisation
-                    individual_usage_data.append({'a': account, 'u': cpu_usage})
-                    individual_usage_hash_string += account + str(cpu_usage)
-                    total_cpu_usage_us += cpu_usage
-                    total_net_usage_words += net_usage
-            else:
-                pass # finished
-            usage_datasets.append(individual_usage_data)
-            usage_dataset_hashes.append(hashlib.sha256(individual_usage_hash_string.encode("utf8")).hexdigest())
-
-    total_usage_hash = hashlib.sha256((str(total_cpu_usage_us) + '-' + str(total_net_usage_words)).encode("utf8")).hexdigest()
-    usage_dataset_hashes = [total_usage_hash] + usage_dataset_hashes
-    all_data_hash = hashlib.sha256(('-'.join(usage_dataset_hashes)).encode("utf8")).hexdigest()
-
-    data = {
-        'total_cpu_usage_us': total_cpu_usage_us,
-        'total_net_usage_words': total_net_usage_words,
-        'total_usage_hash': total_usage_hash,
-        'all_data_hash': all_data_hash,
-        'usage_datasets': usage_datasets
-    }
-
-    logger.info(f'Total CPU: {total_cpu_usage_us}, Total NET: {total_net_usage_words}, Totals Hash: {total_usage_hash}, All Data hash: {all_data_hash}')
-
-    # remove from AGGREGATION_DATA and add to SUBMISSION_DATA
-    p = redis.pipeline()
-    p.set('SUBMISSION_DATA_' + str(period_start), json.dumps(data))
-    for account in period_accounts:
-        p.delete('AGGREGATION_DATA_' + str(period_start))
-    p.execute()
-
 
 # if no redis dump file is present, determine starting block number and initialise db
 if os.path.exists('/data/dump.rdb'):
@@ -277,10 +225,7 @@ while KEEP_RUNNING:
                 redis_last_block_period_start = redis.get('last_block_period_start')
                 if redis_last_block_period_start:
                     if last_block_period_start > int(redis_last_block_period_start):
-                        if TEST_USAGE_DATA:
-                            aggregate_period_test_data(int(redis_last_block_period_start))
-                        else:
-                            aggregate_period_data(int(redis_last_block_period_start))
+                        aggregate_period_data(int(redis_last_block_period_start))
 
                 # add resource usage to redis in atomic transaction
                 pipe = redis.pipeline()
