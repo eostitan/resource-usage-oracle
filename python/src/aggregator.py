@@ -52,60 +52,51 @@ def fetch_block_json(b_num):
     return b_num, block_info
 
 def fetch_block_range(block_range):
-    try:
-        original_last_block = block_range.start - 1
-        with ThreadPoolExecutor(max_workers=BLOCK_ACQUISITION_THREADS) as executor:
-            results = executor.map(fetch_block_json,  block_range)
-        results = sorted(results, key=lambda x: x[0]) # sort results by block number
+    original_last_block = block_range.start - 1
+    with ThreadPoolExecutor(max_workers=BLOCK_ACQUISITION_THREADS) as executor:
+        results = executor.map(fetch_block_json,  block_range)
+    results = sorted(results, key=lambda x: x[0]) # sort results by block number
 
-        block_period_start = None
-        date_account_resource_deltas = Counter()
-        for result in results:
-            block_number, block_info = result
+    block_period_start = None
+    date_account_resource_deltas = Counter()
+    for result in results:
+        block_number, block_info = result
 
-            try:
-                if not isinstance(block_number, int):
-                    raise Exception('Returned block_number is not an Integer as expected.')
+        if not isinstance(block_number, int):
+            raise Exception('Returned block_number is not an Integer as expected.')
 
-                new_block_time_seconds = datetime.strptime(block_info['timestamp']+'000', '%Y-%m-%dT%H:%M:%S.%f').timestamp()
-                new_block_period_start = int((int(new_block_time_seconds) // DATA_PERIOD_SECONDS) * DATA_PERIOD_SECONDS)
+        new_block_time_seconds = datetime.strptime(block_info['timestamp']+'000', '%Y-%m-%dT%H:%M:%S.%f').timestamp()
+        new_block_period_start = int((int(new_block_time_seconds) // DATA_PERIOD_SECONDS) * DATA_PERIOD_SECONDS)
 
-                # ensure that block range only includes blocks from a single period
-                if block_period_start:
-                    if new_block_period_start != block_period_start:
-                        break
+        # ensure that block range only includes blocks from a single period
+        if block_period_start:
+            if new_block_period_start != block_period_start:
+                break
 
-                block_period_start = new_block_period_start
+        block_period_start = new_block_period_start
 
-                for itx, tx in enumerate(block_info['transactions']):
-                    if tx['status'] == 'executed':
-                        if isinstance(tx['trx'], dict): # if not, is empty
-                            actions = []
-                            try:
-                                actions = tx['trx']['transaction']['actions']
-                            except Exception as e:
-                                logger.info(traceback.format_exc())
-                            actor = None
-                            for action in actions:
-                                try:
-                                    actor = action['authorization'][0]['actor']
-                                    break
-                                except Exception as e:
-                                    pass # Action has no auth actor, so will next available in tx
+        for itx, tx in enumerate(block_info['transactions']):
+            if tx['status'] == 'executed':
+                if isinstance(tx['trx'], dict): # if not, is empty
+                    actions = []
+                    try:
+                        actions = tx['trx']['transaction']['actions']
+                    except Exception as e:
+                        logger.info(traceback.format_exc())
+                    actor = None
+                    for action in actions:
+                        try:
+                            actor = action['authorization'][0]['actor']
+                            break
+                        except Exception as e:
+                            pass # Action has no auth actor, so will next available in tx
 
-                            if actor not in EXCLUDED_ACCOUNTS:
-                                date_account_resource_deltas[('AGGREGATION_DATA_' + str(block_period_start), actor, 'cpu')] += tx["cpu_usage_us"]
-                                date_account_resource_deltas[('AGGREGATION_DATA_' + str(block_period_start), actor, 'net')] += tx["net_usage_words"]
+                    if actor not in EXCLUDED_ACCOUNTS:
+                        date_account_resource_deltas[('AGGREGATION_DATA_' + str(block_period_start), actor, 'cpu')] += tx["cpu_usage_us"]
+                        date_account_resource_deltas[('AGGREGATION_DATA_' + str(block_period_start), actor, 'net')] += tx["net_usage_words"]
 
-            except Exception as e:
-                logger.error(traceback.format_exc())
-                return None, None
+    return block_number, block_period_start, date_account_resource_deltas
 
-        return block_number, block_period_start, date_account_resource_deltas
-
-    except Exception as e:
-        logger.error(traceback.format_exc())
-        return None, None
 
 def aggregate_period_data(period_start):
     logger.info(f'Aggregating data for period {seconds_to_time_string(period_start)}')
@@ -235,9 +226,9 @@ while KEEP_RUNNING:
                 pipe.set('last_block', last_block)
                 pipe.set('last_block_period_start', last_block_period_start)
                 pipe.execute()
-                logger.info(f'Collected Block: {last_block} / Aggregation Period: {seconds_to_time_string(last_block_period_start)}')
+                logger.info(f'Last Collected Block: {last_block} / Aggregation Period: {seconds_to_time_string(last_block_period_start)}')
             time.sleep(0.5)
 
     except Exception as e:
         logger.error(f'Failed to collect block range: {e}')
-        time.sleep(10)
+        time.sleep(5)
