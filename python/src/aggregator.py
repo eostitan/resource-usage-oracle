@@ -99,6 +99,7 @@ def fetch_block_range(block_range):
 
             except Exception as e:
                 logger.error(traceback.format_exc())
+                return None, None
 
         return block_number, block_period_start, date_account_resource_deltas
 
