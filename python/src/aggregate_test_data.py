@@ -64,10 +64,8 @@ def aggregate_period_test_data(period_start):
                     individual_usage_hash_string += account + str(cpu_usage)
                     total_cpu_usage_us += cpu_usage
                     total_net_usage_words += net_usage
-            else:
-                pass # finished
-            usage_datasets.append(individual_usage_data)
-            usage_dataset_hashes.append(hashlib.sha256(individual_usage_hash_string.encode("utf8")).hexdigest())
+                usage_datasets.append(individual_usage_data)
+                usage_dataset_hashes.append(hashlib.sha256(individual_usage_hash_string.encode("utf8")).hexdigest())
 
     total_usage_hash = hashlib.sha256((str(total_cpu_usage_us) + '-' + str(total_net_usage_words)).encode("utf8")).hexdigest()
     usage_dataset_hashes = [total_usage_hash] + usage_dataset_hashes
