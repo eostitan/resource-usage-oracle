@@ -19,6 +19,7 @@ from utils import seconds_to_time_string, get_contract_configuration_state
 
 # get environment variables
 TEST_USAGE_DATA =  os.getenv('TEST_USAGE_DATA', 'False') == 'True'
+TEST_USAGE_DATA_UTILITY_PERCENTAGE = int(os.getenv('TEST_USAGE_DATA_UTILITY_PERCENTAGE', 10))
 
 if not TEST_USAGE_DATA:
     quit()
@@ -43,7 +44,7 @@ logger.addHandler(handler)
 redis = redis.StrictRedis(host='redis', port=6379, db=0, decode_responses=True)
 
 def aggregate_period_test_data(period_start):
-    logger.info(f'Creating test data for period {seconds_to_time_string(period_start)}')
+    logger.info(f'Creating test data for period {seconds_to_time_string(period_start)} at {TEST_USAGE_DATA_UTILITY_PERCENTAGE}% utility')
 
     period_accounts = ['bp1', 'bp2', 'bp3', 'bp4', 'bp5', 'bpa', 'bpb', 'bpc', 'bpd', 'bpe']
 
@@ -58,8 +59,8 @@ def aggregate_period_test_data(period_start):
             accounts = period_accounts[i:i+DATASET_BATCH_SIZE]
             if len(accounts) > 0:
                 for account in accounts:
-                    cpu_usage = 540000000 # for 50% utilisation
-                    net_usage = 47500000 # for ~50% utilisation
+                    cpu_usage = int((345600000 * TEST_USAGE_DATA_UTILITY_PERCENTAGE) / 10)
+                    net_usage = int((226492416 * TEST_USAGE_DATA_UTILITY_PERCENTAGE) / 10)
                     individual_usage_data.append({'a': account, 'u': cpu_usage})
                     individual_usage_hash_string += account + str(cpu_usage)
                     total_cpu_usage_us += cpu_usage
