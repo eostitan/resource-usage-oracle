@@ -20,6 +20,7 @@ from utils import seconds_to_time_string, get_contract_configuration_state
 # get environment variables
 TEST_USAGE_DATA =  os.getenv('TEST_USAGE_DATA', 'False') == 'True'
 TEST_USAGE_DATA_UTILITY_PERCENTAGE = int(os.getenv('TEST_USAGE_DATA_UTILITY_PERCENTAGE', 10))
+TEST_USAGE_DATA_PERIODS = int(os.getenv('TEST_USAGE_DATA_PERIODS', 10))
 
 if not TEST_USAGE_DATA:
     quit()
@@ -100,5 +101,5 @@ redis.set('DATA_PERIOD_SECONDS', DATA_PERIOD_SECONDS)
 redis.set('DATASET_BATCH_SIZE', DATASET_BATCH_SIZE)
 redis.save()
 
-for period in range(10):
+for period in range(TEST_USAGE_DATA_PERIODS):
     aggregate_period_test_data(int(period_start_seconds) + (period * DATA_PERIOD_SECONDS))
