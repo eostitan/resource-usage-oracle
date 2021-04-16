@@ -64,8 +64,9 @@ def aggregate_period_test_data(period_start):
                 for account in accounts:
                     cpu_usage = int((TEST_SYSTEM_MAX_BLOCK_CPU_USAGE * 2 * 60 * 60 * 24 * (TEST_USAGE_DATA_UTILITY_PERCENTAGE / 100)) / 10) # 10 bps
                     net_usage = int(((TEST_SYSTEM_MAX_BLOCK_NET_USAGE * 2 * 60 * 60 * 24) / 8 * (TEST_USAGE_DATA_UTILITY_PERCENTAGE / 100)) / 10)
-                    individual_usage_data.append({'a': account, 'u': cpu_usage})
-                    individual_usage_hash_string += account + str(cpu_usage)
+                    if cpu_usage > 0:
+                        individual_usage_data.append({'a': account, 'u': cpu_usage})
+                        individual_usage_hash_string += account + str(cpu_usage)
                     total_cpu_usage_us += cpu_usage
                     total_net_usage_words += net_usage
                 usage_datasets.append(individual_usage_data)
