@@ -6,7 +6,7 @@ It stays aware of the state of the contract and sends the total system CPU/NET u
 
 Data is stored in Redis which is persisted to file every 5 minutes.
 
-All data is pruned to the most recent 28 days worth.
+By default all data submission data is pruned to the most recent 28 days worth (can be change in config.env).
 
 Data submission uses a small node.js Express http server.
 

@@ -54,7 +54,7 @@ while KEEP_RUNNING:
     most_recent_submission_data_seconds = 0
     for key in sorted(redis.keys('SUBMISSION_DATA_*')):
         pss = int(key[16:])
-        if current_time_seconds > pss + (3600 *24 * SUBMISSION_DATA_HISTORY_DAYS): # more than 28 days ago
+        if current_time_seconds > pss + (3600 *24 * SUBMISSION_DATA_HISTORY_DAYS):
             redis.delete(key)
         most_recent_submission_data_seconds = pss
     logger.info(f'Most recent data available to submit: {seconds_to_time_string(most_recent_submission_data_seconds)}')
