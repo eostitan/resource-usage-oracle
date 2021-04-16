@@ -21,6 +21,8 @@ from utils import seconds_to_time_string, get_contract_configuration_state
 TEST_USAGE_DATA =  os.getenv('TEST_USAGE_DATA', 'False') == 'True'
 TEST_USAGE_DATA_UTILITY_PERCENTAGE = int(os.getenv('TEST_USAGE_DATA_UTILITY_PERCENTAGE', 10))
 TEST_USAGE_DATA_PERIODS = int(os.getenv('TEST_USAGE_DATA_PERIODS', 10))
+TEST_SYSTEM_MAX_BLOCK_CPU_USAGE = int(os.getenv('TEST_SYSTEM_MAX_BLOCK_CPU_USAGE', 200000))
+TEST_SYSTEM_MAX_BLOCK_NET_USAGE = int(os.getenv('TEST_SYSTEM_MAX_BLOCK_NET_USAGE', 1048576))
 
 if not TEST_USAGE_DATA:
     quit()
@@ -60,8 +62,8 @@ def aggregate_period_test_data(period_start):
             accounts = period_accounts[i:i+DATASET_BATCH_SIZE]
             if len(accounts) > 0:
                 for account in accounts:
-                    cpu_usage = int((345600000 * TEST_USAGE_DATA_UTILITY_PERCENTAGE) / 10)
-                    net_usage = int((226492416 * TEST_USAGE_DATA_UTILITY_PERCENTAGE) / 10)
+                    cpu_usage = int((TEST_SYSTEM_MAX_BLOCK_CPU_USAGE * 2 * 60 * 60 * 24 * (TEST_USAGE_DATA_UTILITY_PERCENTAGE / 100)) / 10) # 10 bps
+                    net_usage = int(((TEST_SYSTEM_MAX_BLOCK_NET_USAGE * 2 * 60 * 60 * 24) / 8 * (TEST_USAGE_DATA_UTILITY_PERCENTAGE / 100)) / 10)
                     individual_usage_data.append({'a': account, 'u': cpu_usage})
                     individual_usage_hash_string += account + str(cpu_usage)
                     total_cpu_usage_us += cpu_usage
