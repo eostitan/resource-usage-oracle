@@ -34,7 +34,7 @@ Data submission uses a small node.js Express http server.
 3) `docker-compose up -d` in each directory
 
 ### Testing mode
-If you want to use standard totals and usage data, and for ease of testing the contract, you can edit config.env to uncomment TEST_USAGE_DATA line before starting, and the [aggregate_test_data.py](python/src/aggregate_test_data.py) file can be edited.
+If you want to use standard totals and usage data for ease of testing the contract, you can edit config.env to uncomment TEST_USAGE_DATA line and set the other TEST_ parameters before starting.
 
 ### Low priority TODOs
 - Prevent contract reconfiguration from requiring existing data to be deleted manually
