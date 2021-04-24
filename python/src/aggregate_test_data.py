@@ -6,9 +6,6 @@ import os
 import time
 import signal
 import hashlib
-from collections import Counter
-from datetime import datetime, timedelta, date
-from concurrent.futures import ThreadPoolExecutor
 
 # external library imports
 import requests

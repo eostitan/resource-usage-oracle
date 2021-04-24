@@ -65,8 +65,8 @@ def fetch_block_range(block_range):
         if not isinstance(block_number, int):
             raise Exception('Returned block_number is not an Integer as expected.')
 
-        new_block_time_seconds = datetime.strptime(block_info['timestamp']+'000', '%Y-%m-%dT%H:%M:%S.%f').timestamp()
-        new_block_period_start = int((int(new_block_time_seconds) // DATA_PERIOD_SECONDS) * DATA_PERIOD_SECONDS)
+        block_time_seconds = datetime.strptime(block_info['timestamp']+'000', '%Y-%m-%dT%H:%M:%S.%f').timestamp()
+        new_block_period_start = int((int(block_time_seconds) // DATA_PERIOD_SECONDS) * DATA_PERIOD_SECONDS)
 
         # ensure that block range only includes blocks from a single period
         if block_period_start:
@@ -95,7 +95,7 @@ def fetch_block_range(block_range):
                         date_account_resource_deltas[('AGGREGATION_DATA_' + str(block_period_start), actor, 'cpu')] += tx["cpu_usage_us"]
                         date_account_resource_deltas[('AGGREGATION_DATA_' + str(block_period_start), actor, 'net')] += tx["net_usage_words"]
 
-    return block_number, block_period_start, date_account_resource_deltas
+    return block_number, block_time_seconds, block_period_start, date_account_resource_deltas
 
 
 def aggregate_period_data(period_start):
@@ -210,7 +210,7 @@ while KEEP_RUNNING:
                 logger.info('Restarting block collection...')
                 break
 
-            last_block, last_block_period_start, date_account_resource_deltas = fetch_block_range(block_range)
+            last_block, last_block_seconds, last_block_period_start, date_account_resource_deltas = fetch_block_range(block_range)
             if last_block:
 
                 # if the data belongs to the next day and there is previous data, aggregate it for sending to contract
@@ -226,7 +226,7 @@ while KEEP_RUNNING:
                 pipe.set('last_block', last_block)
                 pipe.set('last_block_period_start', last_block_period_start)
                 pipe.execute()
-                logger.info(f'Last Collected Block: {last_block} / Aggregation Period: {seconds_to_time_string(last_block_period_start)}')
+                logger.info(f'Last Collected Block: {last_block} ({seconds_to_time_string(last_block_seconds)}) / Aggregation Period: {seconds_to_time_string(last_block_period_start)}')
             time.sleep(0.5)
 
     except Exception as e:

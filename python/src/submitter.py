@@ -48,7 +48,7 @@ while KEEP_RUNNING and not os.path.exists('/data/dump.rdb'):
 
 # check for complete periods of data and submit at the appropriate time in contract lifecycle
 while KEEP_RUNNING:
-    current_time_seconds = datetime.now().timestamp()
+    current_time_seconds = datetime.utcnow().timestamp()
 
     # prune old redis data and get most recent submission data available
     most_recent_submission_data_seconds = 0
@@ -107,7 +107,7 @@ while KEEP_RUNNING:
                         "total_cpu_us": data['total_cpu_usage_us'],
                         "total_net_words": data['total_net_usage_words'],
                         "all_data_hash": data['all_data_hash'],
-                        "period_start": datetime.fromtimestamp(period_start_seconds).strftime('%Y-%m-%dT%H:%M:%S')
+                        "period_start": datetime.utcfromtimestamp(period_start_seconds).strftime('%Y-%m-%dT%H:%M:%S')
                     }
                 }
                 logger.info(f'Submitting resource usage totals for {seconds_to_time_string(period_start_seconds)}...')
@@ -133,7 +133,7 @@ while KEEP_RUNNING:
                     "data": {"source": SUBMISSION_ACCOUNT,
                         "dataset_id": dataset_id,
                         "dataset": dataset,
-                        "period_start": datetime.fromtimestamp(period_start_seconds).strftime('%Y-%m-%dT%H:%M:%S')
+                        "period_start": datetime.utcfromtimestamp(period_start_seconds).strftime('%Y-%m-%dT%H:%M:%S')
                     }
                 }
                 logger.info(f'Submitting accounts resource usage for {seconds_to_time_string(period_start_seconds)}...')

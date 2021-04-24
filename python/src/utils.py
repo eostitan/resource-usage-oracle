@@ -27,7 +27,7 @@ logger.addHandler(handler)
 # helper functions
 def seconds_to_time_string(epochsecs):
     '''Returns time as formatted string'''
-    return datetime.fromtimestamp(epochsecs).strftime('%Y-%m-%d %H:%M')
+    return datetime.utcfromtimestamp(epochsecs).strftime('%Y-%m-%d %H:%M')
 
 def get_contract_configuration_state():
     '''
@@ -75,7 +75,7 @@ def seconds_to_block_number(epochsecs):
         Given time in epoch seconds, returns an appropriate starting block a couple of minutes before that. 
         Assuming no more than 2 blocks/sec avg, it is sure to be prior to target block.
     '''
-    current_time_seconds = datetime.now().timestamp()
+    current_time_seconds = datetime.utcnow().timestamp()
     lib_block_num = requests.get(f'{BLOCKS_API_NODE}/v1/chain/get_info', timeout=5).json()["last_irreversible_block_num"]
     target_block_num = lib_block_num - ((current_time_seconds - epochsecs) * 2)
     return int(target_block_num)
